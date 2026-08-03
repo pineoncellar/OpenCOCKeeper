@@ -12,10 +12,12 @@
 """
 
 from src.llm.client import LLMResult, ask_llm, call_llm, call_llm_stream
+from src.llm.fake import FakeLLM
 
 __all__ = [
     "LLMResult",
     "call_llm",
     "call_llm_stream",
     "ask_llm",
+    "FakeLLM",
 ]
