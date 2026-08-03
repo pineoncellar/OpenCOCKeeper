@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Union
 
 from ..core.config import get_settings
 from ..core.db import get_db
@@ -194,6 +194,32 @@ class Memory:
         )
         return list(hits)
 
+    # ---- 核心接口：主 Agent 检索 ----
+
+    async def query_memory(
+        self,
+        queries: Union[str, List[str]],
+        world_id: str,
+        *,
+        top_k: int = 8,
+        since_turn: Optional[int] = None,
+    ) -> List[MemoryHit]:
+        """主 Agent 专用检索入口：单条或多条语义化 query 合并召回。
+
+        与 search 的差别在两点：默认 top_k 放宽到 8（容忍语义低排名命中），
+        且接受多条 query 变体——主 Agent 可把一次感知拆成多个角度表述，
+        逐条召回后按分数合并去重。实证表明描述性/多角度 query 的命中率
+        显著高于单感官关键词。
+        """
+        qs = [queries] if isinstance(queries, str) else list(queries)
+        if not qs:
+            return []  # 状态：空 query 列表，直接返回
+        hit_lists = [
+            await self.search(q, world_id, top_k=top_k, since_turn=since_turn)
+            for q in qs
+        ]
+        return _merge_query_hits(hit_lists, top_k)
+
     # ---- 内部：LLM 提炼与 recap ----
 
     async def _extract_events(self, turns: List[dict]) -> List[Dict[str, Any]]:
@@ -257,6 +283,21 @@ class Memory:
 # ============================================
 # 纯函数辅助
 # ============================================
+
+
+def _merge_query_hits(hit_lists: List[List[MemoryHit]], top_k: int) -> List[MemoryHit]:
+    """多变体召回结果合并：按 (text, turn_num) 去重，按 score 降序取前 top_k。"""
+    seen: Set[tuple] = set()
+    merged: List[MemoryHit] = []
+    for hits in hit_lists:
+        for h in hits:
+            key = (h.text, h.turn_num)
+            if key in seen:
+                continue  # 状态：跨 query 重复命中，只保留第一条
+            seen.add(key)
+            merged.append(h)
+    merged.sort(key=lambda h: h.score, reverse=True)
+    return merged[:top_k]
 
 
 def _render_turn(turn: dict) -> str:

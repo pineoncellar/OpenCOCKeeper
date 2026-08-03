@@ -199,6 +199,83 @@ async def test_search_requires_world(storage):
 
 
 # ============================================
+# 主 Agent 检索 query_memory
+# ============================================
+
+
+async def test_query_memory_single_query(storage, world_id):
+    backend = FakeMemoryBackend()
+    backend.add_events(
+        [
+            {"text": "塞恩先生喜欢画画，最近在学油画"},
+            {"text": "费莉西蒂在酒窖找到了陈年葡萄酒"},
+        ],
+        world_id=world_id,
+        batch_turn_nums=[1],
+    )
+    memory = Memory(backend=backend, storage=storage)
+
+    hits = await memory.query_memory("画画", world_id, top_k=2)
+    assert hits[0].text == "塞恩先生喜欢画画，最近在学油画"
+
+
+async def test_query_memory_multi_variant_merge_dedup(storage, world_id):
+    backend = FakeMemoryBackend()
+    backend.add_events(
+        [
+            {"text": "塞恩先生喜欢画画，最近在学油画"},
+            {"text": "伯纳黛特手上沾着蓝色颜料"},
+            {"text": "费莉西蒂在酒窖找到了陈年葡萄酒"},
+        ],
+        world_id=world_id,
+        batch_turn_nums=[1],
+    )
+    memory = Memory(backend=backend, storage=storage)
+    # 多条 query 变体：同一目标被多个角度命中，合并后应无重复
+    hits = await memory.query_memory(["颜料", "画画"], world_id, top_k=5)
+    texts = [h.text for h in hits]
+    assert len(texts) == len(set(texts))
+    assert "伯纳黛特手上沾着蓝色颜料" in texts
+    assert "塞恩先生喜欢画画，最近在学油画" in texts
+
+
+async def test_query_memory_topk_after_merge(storage, world_id):
+    backend = FakeMemoryBackend()
+    backend.add_events(
+        [
+            {"text": "塞恩先生喜欢画画"},
+            {"text": "伯纳黛特手上沾着颜料"},
+            {"text": "费莉西蒂喜欢水彩"},
+        ],
+        world_id=world_id,
+        batch_turn_nums=[1],
+    )
+    memory = Memory(backend=backend, storage=storage)
+    # 两条变体各命中一条，合并后按 top_k 截断
+    hits = await memory.query_memory(["画画", "颜料"], world_id, top_k=1)
+    assert len(hits) == 1
+
+
+async def test_query_memory_empty_and_no_hit(storage, world_id):
+    backend = FakeMemoryBackend()
+    memory = Memory(backend=backend, storage=storage)
+    assert await memory.query_memory([], world_id) == []
+    assert await memory.query_memory("毫无关联的词", world_id) == []
+
+
+async def test_query_memory_fake_memory_aligned(storage, world_id):
+    # FakeMemory 门面接口对齐：多变体合并行为一致
+    fm = FakeMemory(storage=storage)
+    fm.backend.add_events(
+        [{"text": "塞恩先生喜欢画画"}, {"text": "伯纳黛特手上沾着颜料"}],
+        world_id=world_id,
+        batch_turn_nums=[1],
+    )
+    hits = await fm.query_memory(["颜料", "画画"], world_id, top_k=5)
+    assert len(hits) == 2
+
+
+# ============================================
 # 纯函数解析
 # ============================================
 

@@ -4,7 +4,8 @@
 固化（consolidate）: 从 recent_turns 未固化轮次提炼原子事件写入 RAG（微观），
                    融合旧前情提要刷新 global_recap 写回 SQLite（宏观），
                    并把处理过的轮次标记为已固化，保证只处理增量。
-搜索（search）:    带 world_id 强制过滤的 Top-K 语义召回，与硬状态彻底解耦。
+搜索（search）:    带 world_id 强制过滤的 Top-K 语义召回，与硬状态彻底解耦；
+                  query_memory 为主 Agent 专用入口，支持多变体合并召回。
 
 门面 :class:`Memory` 的 backend 可注入真实 Mem0（backend.py）或
 内存假后端（fake.py）；测试 / 本地速跑建议走 FakeMemory 或

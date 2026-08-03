@@ -13,7 +13,13 @@ from typing import Any, Dict, List, Optional
 from ..core.db import get_db
 from ..core.exceptions import WorldNotFoundError
 from ..storage.storage import Storage
-from .interface import ConsolidateResult, MemoryHit, _first_location, _render_turn
+from .interface import (
+    ConsolidateResult,
+    MemoryHit,
+    _first_location,
+    _merge_query_hits,
+    _render_turn,
+)
 
 
 # ============================================
@@ -172,6 +178,27 @@ class FakeMemory:
             top_k=max(1, int(top_k)),
             since_turn=since_turn,
         )
+
+    async def query_memory(
+        self,
+        queries,
+        world_id: str,
+        *,
+        top_k: int = 8,
+        since_turn: Optional[int] = None,
+    ) -> List[MemoryHit]:
+        """与 Memory.query_memory 同签名：多变体召回合并，走内存后端。"""
+        self._require_world(world_id)
+        qs = [queries] if isinstance(queries, str) else list(queries)
+        if not qs:
+            return []  # 状态：空 query 列表，直接返回
+        hit_lists = [
+            self._backend.search_topk(
+                q, world_id=world_id, top_k=max(1, int(top_k)), since_turn=since_turn
+            )
+            for q in qs
+        ]
+        return _merge_query_hits(hit_lists, top_k)
 
     def _require_world(self, world_id: str) -> None:
         if self._storage.get_world(world_id) is None:
