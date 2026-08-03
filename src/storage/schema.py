@@ -73,4 +73,11 @@ MIGRATIONS: list[list[str]] = [
     [
         "ALTER TABLE world_state ADD COLUMN global_recap TEXT NOT NULL DEFAULT ''",
     ],
+    # 迁移 2：recent_turns 增加 solidified 固化标记列，跟踪"已提炼进 RAG"的轮次
+    # 固化接口据此找出尚未固化的轮次，避免重复提炼；默认 0=未固化
+    [
+        "ALTER TABLE recent_turns ADD COLUMN solidified INTEGER NOT NULL DEFAULT 0",
+        "CREATE INDEX IF NOT EXISTS idx_recent_turns_solidified "
+        "ON recent_turns(world_id, solidified, turn_num)",
+    ],
 ]

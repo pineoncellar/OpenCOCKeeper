@@ -47,6 +47,14 @@ memory:
   recent_turns_window: 20            # 近程上下文滚动轮数
   solidify_token_threshold: 2000     # 达到该 token 阈值触发后台固化
   solidify_poll_interval: 60         # 固化 Worker 轮询间隔（秒）
+  # RAG 语义记忆后端配置（配合 src/memory/ 模块使用，见 docs/新rag架构.md）
+  rag:
+    llm_tier: "standard"            # 事件提炼 / 宏观 recap 用的模型档位
+    embedder_provider: "SILKFLOW"   # 嵌入提供方（须支持 /v1/embeddings 端点）
+    embedder_model: "BAAI/bge-m3"   # 嵌入模型
+    embedding_model_dims: 1024       # 嵌入向量维度（bge-m3 为 1024）
+    vector_store: "qdrant"          # mem0ai v2 向量库（无 sqlite）；qdrant 走本地 path 模式
+    collection_name: "open_coc_keeper_mem"
 
 # ------------------------------------------------------------
 # 日志

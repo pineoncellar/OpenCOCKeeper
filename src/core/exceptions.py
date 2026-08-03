@@ -28,3 +28,11 @@ class TurnNotFoundError(StorageError):
 
 class UndoError(StorageError):
     """回档失败：state_diff 缺失、或已回滚到最旧轮次无法继续。"""
+
+
+class MemoryOperationError(OpenCOCKeeperError):
+    """记忆固化/检索流程失败：LLM 提炼失败、返回内容不可解析、后端写入异常等。
+
+    约定：固化接口不做任何降级兜底，失败即抛本异常并保持"未固化"进度，
+    上层事件处理流可捕获后整批重试（名称避开 Python 内置 MemoryError）。
+    """

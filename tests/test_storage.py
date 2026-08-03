@@ -222,12 +222,14 @@ def test_migration_adds_global_recap_to_old_db(tmp_path):
     db = Database(tmp_path / "old.db")
     db.migrate(MIGRATIONS[:1])
     assert db.user_version() == 1
-    s = Storage(db=db)  # 触发迁移 1
-    assert db.user_version() == 2
+    s = Storage(db=db)  # 触发迁移 1 + 迁移 2
+    assert db.user_version() == len(MIGRATIONS)
     conn = db.connect()
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(world_state)")]
+    world_cols = [r[1] for r in conn.execute("PRAGMA table_info(world_state)")]
+    turn_cols = [r[1] for r in conn.execute("PRAGMA table_info(recent_turns)")]
     conn.close()
-    assert "global_recap" in cols
+    assert "global_recap" in world_cols  # 迁移 1：宏观前情提要列
+    assert "solidified" in turn_cols  # 迁移 2：固化进度标记列
     wid = make_world_id(900, "migrated")
     s.ensure_world(wid)
     assert s.get_world(wid)["global_recap"] == ""

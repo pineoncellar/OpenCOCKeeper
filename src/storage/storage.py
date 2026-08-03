@@ -414,6 +414,42 @@ class Storage:
             ).fetchall()
         return [_decode_turn(r) for r in rows]
 
+    def get_unsolidified_turns(
+        self, world_id: str, *, up_to_turn: Optional[int] = None
+    ) -> List[dict]:
+        """读取尚未固化进 RAG 的轮次（solidified=0，按 turn_num 升序）。
+
+        up_to_turn 非空时只返回 <= 该轮次的记录，供固化接口按需截断批次。
+        已固化的轮次不会重复出现，这是固化接口"只处理增量"的依据。
+        """
+        query = "SELECT * FROM recent_turns WHERE world_id = ? AND solidified = 0"
+        params: List[Any] = [world_id]
+        if up_to_turn is not None:
+            query += " AND turn_num <= ?"
+            params.append(int(up_to_turn))
+        query += " ORDER BY turn_num ASC"
+        with self._db.read() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [_decode_turn(r) for r in rows]
+
+    def mark_turns_solidified(self, world_id: str, turn_nums: List[int]) -> int:
+        """把指定轮次标记为已固化（solidified=1），返回实际更新的行数。
+
+        固化接口在"提炼成功并写入 RAG"后调用，保证进度落库、崩溃后可续跑；
+        占位符数量由内部 len(turn_nums) 生成，值全部走参数绑定，无注入风险。
+        """
+        nums = [int(n) for n in turn_nums]
+        if not nums:
+            return 0
+        placeholders = ",".join("?" * len(nums))
+        with self._db.transaction() as conn:
+            cur = conn.execute(
+                f"UPDATE recent_turns SET solidified = 1 WHERE world_id = ? "
+                f"AND turn_num IN ({placeholders})",
+                [world_id, *nums],
+            )
+        return cur.rowcount
+
     def undo_turn(self, world_id: str, turn_num: int) -> dict:
         """回档指定轮次：取反该轮 state_diff 原子应用，再删除该轮记录。
 

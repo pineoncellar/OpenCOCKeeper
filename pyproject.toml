@@ -9,6 +9,13 @@ dependencies = [
     "pyyaml>=6.0.3",
 ]
 
+# 可选：真实 Mem0 RAG 后端（默认不安装，避免拉入重型向量库依赖）
+# 启用方式：uv add --optional rag mem0ai；不启用时可用 src.memory.FakeMemory 速跑
+[project.optional-dependencies]
+rag = [
+    "mem0ai>=0.1.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
