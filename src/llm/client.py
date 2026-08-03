@@ -1,34 +1,10 @@
 # -*- coding: utf-8 -*-
-"""统一 LLM 调用客户端（从 glyphkeeper/src/tools/llm_client.py 迁移，适配新架构）。
-
-新架构变更点：
-  - 配置访问改为 dict 式：``get_settings().get_model_config(tier)`` 返回 dict，
-    提供方用 ``get_settings().get_provider(name)`` 读取 providers.ini；
-  - 日志改用 ``src.core.log.get_logger``；
-  - 移除 LangSmith 追踪（``to_trace``），新架构不依赖 LangSmith；
-  - 保留三级模型（fast / standard / smart）、超时重试、流式、Token 用量追踪。
-
-职责:
-  - 封装对 OpenAI 兼容 API 的异步调用
-  - 支持三级模型（fast / standard / smart），从 config.yaml 读取配置
-  - 超时重试、错误处理
-  - Token 用量追踪（可选，由 config.yaml 中 project.model_cost_tracking 控制）
-
-使用方式::
-
-    from src.llm import call_llm, call_llm_stream, ask_llm
-
-    # 非流式
-    result = await call_llm("fast", [
-        {"role": "system", "content": "你是助手"},
-        {"role": "user", "content": "你好"},
-    ])
-    if result.is_ok:
-        print(result.text)
-
-    # 流式
-    async for chunk in call_llm_stream("standard", messages):
-        print(chunk, end="")
+"""
+@File     :   client.py
+@Desc     :   统一 OpenAI 兼容 API 的异步调用客户端：三级模型分级、超时重试、流式输出
+@Note     :   配置经 src.core.config 读取：model_tiers.<tier> 取模型档位，
+             providers.ini 对应节取 base_url / api_key（缺失即抛明确错误）；
+             公共入口 call_llm / call_llm_stream / ask_llm（见 src.llm.__init__）
 """
 
 from __future__ import annotations
@@ -49,6 +25,8 @@ logger = get_logger(__name__)
 DEFAULT_TIMEOUT = 60.0
 MAX_RETRIES = 2
 RETRY_DELAY_BASE = 1.0  # 退避基础秒数
+# ask_llm 允许透传给 call_llm 的参数白名单，拼错名字静默忽略而非抛 TypeError
+_LLM_KWARGS_ALLOWLIST = frozenset({"timeout", "max_retries", "temperature", "max_tokens"})
 
 
 # ====================================================================
@@ -106,12 +84,14 @@ def _build_api_url(base_url: str) -> str:
     return f"{base_url}/v1/chat/completions"
 
 
-def _get_tier_config(tier: str) -> tuple[Dict, Optional[Dict]]:
+def _get_tier_config(tier: str) -> tuple[Dict, Dict]:
     """获取指定层级的完整模型 + 提供商配置。
 
-    返回 ``(model_config: dict, provider_config: dict | None)``。
+    返回 ``(model_config: dict, provider_config: dict)``。
     模型配置来自 config.yaml 的 ``model_tiers.<tier>``，
     提供方配置来自 providers.ini 的对应节（provider 字段，不区分大小写）。
+    在此统一校验 api_key / base_url 齐备，缺任一抛 ValueError，
+    让调用方拿到明确错误，而不是后续下标取值时莫名 KeyError。
     """
     settings = get_settings()
     model_config = settings.get_model_config(tier)  # 未知 tier 时抛 ConfigError
@@ -122,14 +102,11 @@ def _get_tier_config(tier: str) -> tuple[Dict, Optional[Dict]]:
             f"未找到提供方 '{provider_name}' 的配置。"
             f"请检查 providers.ini 是否包含 [{str(provider_name).upper()}] 配置节"
         )
+    if not provider_config.get("api_key"):
+        raise ValueError(f"提供方 '{provider_name}' 未配置 api_key")
+    if not provider_config.get("base_url"):
+        raise ValueError(f"提供方 '{provider_name}' 未配置 base_url")
     return model_config, provider_config
-
-
-def _estimate_tokens(text: str) -> int:
-    """粗略估算 token 数（4 字符 ≈ 1 token）。"""
-    if not text:
-        return 0
-    return max(1, (len(text) + 3) // 4)
 
 
 # ====================================================================
@@ -167,11 +144,6 @@ async def call_llm(
         return LLMResult(text=None, tier=tier, model_name="", messages=messages,
                          success=False, error=str(e))
 
-    if not provider_config or not provider_config.get("api_key"):
-        logger.error(f"call_llm: 提供商 '{model_config.get('provider')}' 未配置 API Key")
-        return LLMResult(text=None, tier=tier, model_name=model_config.get("model_name", ""),
-                         messages=messages, success=False, error="API Key 未配置")
-
     api_url = _build_api_url(provider_config["base_url"])
     headers = {
         "Content-Type": "application/json",
@@ -198,12 +170,14 @@ async def call_llm(
                 ) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
+                        # 状态：5xx/429 可重试；其余 4xx 为鉴权/参数错误，重试无益白耗配额
+                        retryable = resp.status >= 500 or resp.status == 429
                         logger.warning(
                             f"LLM API {resp.status} (tier={tier}, "
                             f"尝试 {attempt + 1}/{max_retries + 1}): "
                             f"{error_text[:200]}"
                         )
-                        if attempt < max_retries:
+                        if retryable and attempt < max_retries:
                             await asyncio.sleep(RETRY_DELAY_BASE * (attempt + 1))
                             continue
                         return LLMResult(text=None, tier=tier,
@@ -221,10 +195,6 @@ async def call_llm(
                                          error="空 choices")
 
                     content = choices[0].get("message", {}).get("content", "")
-
-                    # Token 用量追踪
-                    if get_settings().get("project.model_cost_tracking", False):
-                        _track_usage(tier, data, messages, model_config)
 
                     return LLMResult(text=content, tier=tier,
                                      model_name=model_config["model_name"],
@@ -265,10 +235,16 @@ async def call_llm_stream(
     messages: list[dict],
     *,
     timeout: float = DEFAULT_TIMEOUT,
+    max_retries: int = MAX_RETRIES,
     temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> AsyncGenerator[str, None]:
     """调用 LLM 并以生成器方式流式返回文本片段。
+
+    与 call_llm 一致带超时重试；重试只覆盖"尚未收到 200、流未开始产出"的
+    阶段，一旦流已建立并产出内容，中途异常直接终止——重播会把已输出的
+    文本片段重复拼接，破坏叙事连续性。
+    超时按 sock_read（两次读取间隔）计时，长叙事不会被总时长上限掐断。
 
     用法::
 
@@ -279,10 +255,6 @@ async def call_llm_stream(
         model_config, provider_config = _get_tier_config(tier)
     except (ConfigError, ValueError) as e:
         logger.error(f"call_llm_stream: 配置错误 (tier={tier}): {e}")
-        return
-
-    if not provider_config or not provider_config.get("api_key"):
-        logger.error(f"call_llm_stream: 提供商未配置 API Key")
         return
 
     api_url = _build_api_url(provider_config["base_url"])
@@ -298,78 +270,61 @@ async def call_llm_stream(
         "stream": True,
     }
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                api_url,
-                headers=headers,
-                json=body,
-                timeout=aiohttp.ClientTimeout(total=timeout),
-            ) as resp:
-                if resp.status != 200:
-                    error_text = await resp.text()
-                    logger.warning(
-                        f"LLM 流式 API {resp.status} (tier={tier}): "
-                        f"{error_text[:200]}"
-                    )
-                    return
-
-                async for raw_line in resp.content:
-                    line = raw_line.decode("utf-8", errors="replace").strip()
-                    if not line or line.startswith(":"):
-                        continue
-                    if line == "data: [DONE]":
-                        break
-                    if line.startswith("data: "):
-                        try:
-                            chunk = json.loads(line[6:])
-                            delta = chunk.get("choices", [{}])[0].get("delta", {})
-                            content = delta.get("content", "")
-                            if content:
-                                yield content
-                        except json.JSONDecodeError:
+    for attempt in range(max_retries + 1):
+        started = False  # 状态：是否已收到 200 开始产出；一旦为真即禁止重试
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    api_url,
+                    headers=headers,
+                    json=body,
+                    # 流式长叙事可能远超 total 上限；改按"两次读取间隔"计时，
+                    # 既能容忍慢速流，又能在对端长时间停顿时及时断开
+                    timeout=aiohttp.ClientTimeout(total=None, sock_connect=timeout, sock_read=timeout),
+                ) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        # 状态：5xx/429 可重试；4xx 鉴权/参数错误重试无益
+                        retryable = resp.status >= 500 or resp.status == 429
+                        logger.warning(
+                            f"LLM 流式 API {resp.status} (tier={tier}, "
+                            f"尝试 {attempt + 1}/{max_retries + 1}): "
+                            f"{error_text[:200]}"
+                        )
+                        if retryable and attempt < max_retries:
+                            await asyncio.sleep(RETRY_DELAY_BASE * (attempt + 1))
                             continue
+                        return
 
-    except Exception as e:
-        logger.warning(f"LLM 流式调用失败 (tier={tier}): {e}")
-        return
-
-
-# ====================================================================
-# Token 用量追踪（内部）
-# ====================================================================
-
-
-def _track_usage(
-    tier: str,
-    response_data: dict,
-    messages: list[dict],
-    model_config: dict,
-) -> None:
-    """记录 Token 用量到日志（project.model_cost_tracking=True 时调用）。
-
-    model_config 中可选的 ``input_cost`` / ``output_cost``（人民币 / M Tokens）
-    用于估算花费；缺省视为 0。
-    """
-    try:
-        usage = response_data.get("usage", {})
-        if not usage:
+                    started = True  # 状态：流已建立，此后异常直接终止，杜绝重播重复
+                    async for raw_line in resp.content:  # 状态：流式读取，遇 [DONE] 结束
+                        line = raw_line.decode("utf-8", errors="replace").strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        if line == "data: [DONE]":
+                            break
+                        if line.startswith("data: "):
+                            try:
+                                chunk = json.loads(line[6:])
+                                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    yield content
+                            except json.JSONDecodeError:
+                                continue
+                    return  # 状态：流正常读完即结束生成器，否则会落入下一轮重试把同段内容重复输出
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            logger.warning(
+                f"LLM 流式失败 (tier={tier}, 尝试 {attempt + 1}/{max_retries + 1}): {e}"
+            )
+            if not started and attempt < max_retries:  # 状态：仅流开始前允许重试
+                await asyncio.sleep(RETRY_DELAY_BASE * (attempt + 1))
+                continue
             return
-
-        prompt_tokens = usage.get("prompt_tokens", 0)
-        completion_tokens = usage.get("completion_tokens", 0)
-        total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
-
-        input_cost = (model_config.get("input_cost") or 0) * prompt_tokens / 1_000_000
-        output_cost = (model_config.get("output_cost") or 0) * completion_tokens / 1_000_000
-
-        logger.info(
-            f"Token 用量 [tier={tier}, model={model_config.get('model_name')}]: "
-            f"prompt={prompt_tokens}, completion={completion_tokens}, "
-            f"total={total_tokens}, cost=¥{input_cost + output_cost:.6f}"
-        )
-    except Exception as e:
-        logger.debug(f"Token 用量追踪失败: {e}")
+        except Exception as e:
+            logger.warning(f"LLM 流式调用失败 (tier={tier}): {e}")
+            return
+    logger.warning(f"LLM 流式最终失败 (tier={tier})")
 
 
 # ====================================================================
@@ -395,4 +350,6 @@ async def ask_llm(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_message},
     ]
-    return await call_llm(tier, messages, **kwargs)
+    # 只透传白名单内参数，拼错名字静默忽略而不是抛 TypeError
+    forwarded = {k: v for k, v in kwargs.items() if k in _LLM_KWARGS_ALLOWLIST}
+    return await call_llm(tier, messages, **forwarded)

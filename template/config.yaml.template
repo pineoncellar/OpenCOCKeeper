@@ -7,13 +7,10 @@ project:
   name: "OpenCOCKeeper"
   # 调试模式：true 时日志级别自动降为 DEBUG
   debug: true
-  # 模型成本追踪：true 时在日志中记录每次调用的 Token 用量与预估费用
-  model_cost_tracking: false
 
 # ------------------------------------------------------------
 # 模型分级
 # provider 对应 providers.ini 中的配置节名称（不区分大小写）
-# input_cost / output_cost 为每百万 Token 的预估价格（人民币），用于成本估算
 # ------------------------------------------------------------
 model_tiers:
   fast:
@@ -21,22 +18,16 @@ model_tiers:
     model_name: "deepseek-ai/DeepSeek-V3"
     temperature: 0.3
     max_tokens: 512
-    input_cost: 2
-    output_cost: 3
   standard:
     provider: "SILKFLOW"
     model_name: "deepseek-ai/DeepSeek-V3.2"
     temperature: 0.7
     max_tokens: 2048
-    input_cost: 2
-    output_cost: 3
   smart:
     provider: "SILKFLOW"
     model_name: "deepseek-ai/DeepSeek-V4-Flash"
     temperature: 0.8
     max_tokens: 4096
-    input_cost: 2
-    output_cost: 3
 
 # ------------------------------------------------------------
 # 存储目录（相对项目根，模块启动时自动创建）
