@@ -154,6 +154,20 @@ class Mem0Memory:
         data_dir = PROJECT_ROOT / str(settings.get("storage.data_dir", "data"))
         local_path = str(data_dir / "mem0" / "qdrant")
 
+        # embedder 配置：默认不传 embedding_dims。
+        # 背景：mem0ai 只要配置了 embedding_dims 就会在 /v1/embeddings 请求里带上
+        # dimensions 参数，而 SiliconFlow 等非 matryoshka 端点会以 400/20015 拒绝。
+        # 需要按维度截断的端点（如 OpenAI text-embedding-3-small）可在
+        # config.yaml memory.rag.pass_embedding_dims 开启后恢复。
+        # 注意：qdrant 集合维度由下方 vector_store.embedding_model_dims 决定，与这里无关。
+        embedder_config = {
+            "model": self._embedder_model,
+            "api_key": self._embedder_cfg.get("api_key"),
+            "openai_base_url": self._embedder_cfg.get("base_url"),
+        }
+        if self._rag_config.get("pass_embedding_dims", False):
+            embedder_config["embedding_dims"] = self._embed_dims
+
         return {
             "llm": {
                 "provider": "openai",
@@ -167,12 +181,7 @@ class Mem0Memory:
             },
             "embedder": {
                 "provider": "openai",
-                "config": {
-                    "model": self._embedder_model,
-                    "api_key": self._embedder_cfg.get("api_key"),
-                    "openai_base_url": self._embedder_cfg.get("base_url"),
-                    "embedding_dims": self._embed_dims,
-                },
+                "config": embedder_config,
             },
             "vector_store": {
                 "provider": self._rag_config.get("vector_store", "qdrant"),
