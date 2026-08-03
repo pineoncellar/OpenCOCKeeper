@@ -221,3 +221,21 @@ __marimo__/
 
 # 参考文件
 glyphkeeper/*
+
+# ============================================
+# OpenCOCKeeper 新架构
+# ============================================
+# 敏感配置
+providers.ini
+.env
+
+# 运行期生成的日志与数据
+logs/
+data/
+*.db
+*.db-journal
+*.sqlite3
+*.sqlite3-journal
+
+# 杂七杂八的
+docs/

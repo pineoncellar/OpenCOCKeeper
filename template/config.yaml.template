@@ -1,0 +1,56 @@
+# ============================================
+# OpenCOCKeeper 新架构 — 业务配置模板
+# 复制为项目根目录 config.yaml 后按需修改
+# ============================================
+
+project:
+  name: "OpenCOCKeeper"
+  # 调试模式：true 时日志级别自动降为 DEBUG
+  debug: true
+
+# ------------------------------------------------------------
+# 模型分级
+# provider 对应 providers.ini 中的配置节名称（不区分大小写）
+# ------------------------------------------------------------
+model_tiers:
+  fast:
+    provider: "SILKFLOW"
+    model_name: "deepseek-ai/DeepSeek-V3"
+    temperature: 0.3
+    max_tokens: 512
+  standard:
+    provider: "SILKFLOW"
+    model_name: "deepseek-ai/DeepSeek-V3.2"
+    temperature: 0.7
+    max_tokens: 2048
+  smart:
+    provider: "SILKFLOW"
+    model_name: "deepseek-ai/DeepSeek-V4-Flash"
+    temperature: 0.8
+    max_tokens: 4096
+
+# ------------------------------------------------------------
+# 存储目录（相对项目根，模块启动时自动创建）
+# ------------------------------------------------------------
+storage:
+  data_dir: "data"
+  modules_dir: "data/modules"
+  raw_sources_dir: "data/raw_sources"
+  backups_dir: "data/backups"
+  db_path: "data/app.db"            # SQLite 主库
+
+# ------------------------------------------------------------
+# 记忆系统
+# ------------------------------------------------------------
+memory:
+  recent_turns_window: 20
+  solidify_token_threshold: 2000
+  solidify_poll_interval: 60
+
+# ------------------------------------------------------------
+# 日志
+# ------------------------------------------------------------
+logging:
+  dir: "logs"
+  max_bytes: 10485760               # 10MB
+  backup_count: 7

@@ -1,0 +1,57 @@
+# ============================================
+# OpenCOCKeeper 新架构 — 业务配置（可提交仓库）
+# 敏感信息（API Key / Base URL）请放入 providers.ini
+# ============================================
+
+project:
+  name: "OpenCOCKeeper"
+  # 调试模式：true 时日志级别自动降为 DEBUG
+  debug: true
+
+# ------------------------------------------------------------
+# 模型分级
+# provider 对应 providers.ini 中的配置节名称（不区分大小写）
+# ------------------------------------------------------------
+model_tiers:
+  fast:
+    provider: "SILKFLOW"
+    model_name: "deepseek-ai/DeepSeek-V3"
+    temperature: 0.3
+    max_tokens: 512
+  standard:
+    provider: "SILKFLOW"
+    model_name: "deepseek-ai/DeepSeek-V3.2"
+    temperature: 0.7
+    max_tokens: 2048
+  smart:
+    provider: "SILKFLOW"
+    model_name: "deepseek-ai/DeepSeek-V4-Flash"
+    temperature: 0.8
+    max_tokens: 4096
+
+# ------------------------------------------------------------
+# 存储目录（相对项目根，模块启动时自动创建）
+# ------------------------------------------------------------
+storage:
+  data_dir: "data"
+  modules_dir: "data/modules"       # 模组原文（PDF / Markdown）
+  raw_sources_dir: "data/raw_sources"
+  backups_dir: "data/backups"
+  db_path: "data/app.db"            # SQLite 主库（单库多世界）
+
+# ------------------------------------------------------------
+# 记忆系统
+# 与 新架构.md 对应：recent_turns 滚动窗口 + RAG 长程固化
+# ------------------------------------------------------------
+memory:
+  recent_turns_window: 20            # 近程上下文滚动轮数
+  solidify_token_threshold: 2000     # 达到该 token 阈值触发后台固化
+  solidify_poll_interval: 60         # 固化 Worker 轮询间隔（秒）
+
+# ------------------------------------------------------------
+# 日志
+# ------------------------------------------------------------
+logging:
+  dir: "logs"
+  max_bytes: 10485760               # 10MB
+  backup_count: 7

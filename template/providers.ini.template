@@ -1,0 +1,21 @@
+# ============================================
+# OpenCOCKeeper 敏感配置模板
+# 复制为项目根目录 providers.ini 并填入真实 Key
+# 注意：providers.ini 已被 .gitignore 忽略，勿提交仓库
+# ============================================
+
+[OPENAI]
+base_url = https://api.openai.com/v1
+api_key = your_openai_api_key_here
+
+[DEEPSEEK]
+base_url = https://api.deepseek.com
+api_key = your_deepseek_api_key_here
+
+[SILKFLOW]
+base_url = https://api.siliconflow.cn/v1
+api_key = your_siliconflow_api_key_here
+
+[LOCAL]
+base_url = http://127.0.0.1:7243/v1
+api_key = not-needed
