@@ -1,0 +1,76 @@
+# -*- coding: utf-8 -*-
+"""
+@File     :   schema.py
+@Desc     :   存储层建表 DDL 迁移，经 db.migrate() 按 user_version 顺序应用
+@Note     :   单库多世界；entities/recent_turns/chat_history_all 均外键关联
+             world_state，ON DELETE CASCADE 保证删世界时级联清理，杜绝孤儿数据；
+             迁移 1 为 world_state 补充 global_recap 宏观前情提要列
+"""
+
+# 迁移脚本：每个元素是一组单条 SQL 语句，列表索引即 schema 版本号
+MIGRATIONS: list[list[str]] = [
+    # 迁移 0：四张核心表 + 索引
+    [
+        """
+        CREATE TABLE IF NOT EXISTS world_state (
+            world_id     TEXT PRIMARY KEY,
+            player_ids   TEXT NOT NULL DEFAULT '[]',
+            game_phase   TEXT NOT NULL DEFAULT 'EXPLORATION',
+            global_flags TEXT NOT NULL DEFAULT '{}',
+            created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS entities (
+            world_id              TEXT NOT NULL,
+            id                    TEXT NOT NULL,
+            type                  TEXT NOT NULL,
+            name                  TEXT NOT NULL,
+            hp                    INTEGER NOT NULL DEFAULT 0,
+            hp_max                INTEGER NOT NULL DEFAULT 0,
+            mp                    INTEGER NOT NULL DEFAULT 0,
+            mp_max                INTEGER NOT NULL DEFAULT 0,
+            san                   INTEGER NOT NULL DEFAULT 0,
+            san_max               INTEGER NOT NULL DEFAULT 0,
+            attributes_and_skills TEXT NOT NULL DEFAULT '{}',
+            inventory             TEXT NOT NULL DEFAULT '[]',
+            tags                  TEXT NOT NULL DEFAULT '[]',
+            created_at            TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at            TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            PRIMARY KEY (world_id, id),
+            FOREIGN KEY (world_id) REFERENCES world_state(world_id) ON DELETE CASCADE
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(world_id, type)",
+        """
+        CREATE TABLE IF NOT EXISTS recent_turns (
+            world_id     TEXT NOT NULL,
+            turn_id      TEXT NOT NULL,
+            turn_num     INTEGER NOT NULL,
+            context_data TEXT NOT NULL DEFAULT '{}',
+            state_diff   TEXT NOT NULL DEFAULT '{}',
+            created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            PRIMARY KEY (world_id, turn_id),
+            UNIQUE (world_id, turn_num),
+            FOREIGN KEY (world_id) REFERENCES world_state(world_id) ON DELETE CASCADE
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_recent_turns_num ON recent_turns(world_id, turn_num)",
+        """
+        CREATE TABLE IF NOT EXISTS chat_history_all (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            world_id   TEXT NOT NULL,
+            role       TEXT NOT NULL,
+            content    TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (world_id) REFERENCES world_state(world_id) ON DELETE CASCADE
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_chat_history_world ON chat_history_all(world_id, id)",
+    ],
+    # 迁移 1：world_state 增加 global_recap 列（宏观记忆固化写回的全局前情提要）
+    # 已有库走 ALTER TABLE 补列，全新库按序执行后字段同样齐备；NOT NULL DEFAULT '' 保证存量行不空
+    [
+        "ALTER TABLE world_state ADD COLUMN global_recap TEXT NOT NULL DEFAULT ''",
+    ],
+]
