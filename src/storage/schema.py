@@ -80,4 +80,10 @@ MIGRATIONS: list[list[str]] = [
         "CREATE INDEX IF NOT EXISTS idx_recent_turns_solidified "
         "ON recent_turns(world_id, solidified, turn_num)",
     ],
+    # 迁移 3：world_state 增加 module_name 列（世界绑定的模组文件名）
+    # 世界初始化时强制绑定 data/modules 下已存在的模组文件，空串代表未绑定
+    # （自由扮演/自定义剧情）；文件存在性校验在存储层 ensure_world/update_world 完成
+    [
+        "ALTER TABLE world_state ADD COLUMN module_name TEXT NOT NULL DEFAULT ''",
+    ],
 ]

@@ -106,6 +106,7 @@ class Storage:
         self,
         world_id: str,
         *,
+        module_name: str = "",
         player_ids: Optional[List[str]] = None,
         game_phase: str = "EXPLORATION",
         global_flags: Optional[Dict[str, Any]] = None,
@@ -114,19 +115,25 @@ class Storage:
         """确保世界存在（不存在则创建），返回当前世界状态。
 
         实体/轮次均外键依赖世界，因此创建任何数据前必须先有世界行。
-        首次创建时可通过 global_recap 直接写入初始前情提要（缺省空串）。
+        强制约束：创建世界必须绑定 data/modules 下已存在的模组文件，
+        缺省/空串/文件不存在一律抛 ModuleFileMissingError 且世界不创建
+        （文件校验在事务前）；已存在的世界保持 INSERT OR IGNORE 幂等语义，
+        换绑走 update_world。
         """
+        from ..module.loader import resolve as resolve_module
+        resolve_module(module_name)  # 强制必填：非空 + 白名单 + 文件存在  # 状态：绑定校验
         with self._db.transaction() as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO world_state "
-                "(world_id, player_ids, game_phase, global_flags, global_recap) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "(world_id, player_ids, game_phase, global_flags, global_recap, module_name) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     world_id,
                     cjson.dumps(player_ids or []),
                     game_phase,
                     cjson.dumps(global_flags or {}),
                     global_recap,
+                    module_name,
                 ),
             )
         world = self.get_world(world_id)
@@ -155,6 +162,7 @@ class Storage:
         self,
         world_id: str,
         *,
+        module_name: Optional[str] = None,
         player_ids: Optional[List[str]] = None,
         game_phase: Optional[str] = None,
         global_flags: Optional[Dict[str, Any]] = None,
@@ -162,12 +170,20 @@ class Storage:
     ) -> dict:
         """部分更新世界状态；传入 None 的字段保持不变。
 
-        global_recap 是宏观记忆固化写回的全局前情提要（纯文本），
+        module_name 传值即换绑模组（须是 data/modules 下存在的文件），
+        传空串可解绑；global_recap 是宏观记忆固化写回的全局前情提要，
         传空串可主动清空，传 None 表示本次不改动。
         """
         self._require_world(world_id)
+        from ..module.loader import resolve as resolve_module
         sets: List[str] = []
         params: List[Any] = []
+        if module_name is not None:
+            # 非空换绑须为 data/modules 下存在的文件；空串表示解绑（允许清空）  # 状态：换绑/解绑
+            if module_name:
+                resolve_module(module_name)
+            sets.append("module_name = ?")
+            params.append(module_name)
         if player_ids is not None:
             sets.append("player_ids = ?")
             params.append(cjson.dumps(player_ids))

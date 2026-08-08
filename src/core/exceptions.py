@@ -36,3 +36,15 @@ class MemoryOperationError(OpenCOCKeeperError):
     约定：固化接口不做任何降级兜底，失败即抛本异常并保持"未固化"进度，
     上层事件处理流可捕获后整批重试（名称避开 Python 内置 MemoryError）。
     """
+
+
+class ModuleFileMissingError(OpenCOCKeeperError):
+    """模组文件缺失或文件名非法：世界初始化绑定/读取时找不到对应模组文件。
+
+    名称刻意避开 Python 内置 ModuleNotFoundError；调用方捕获后应
+    向用户提示"data/modules 下缺少该模组文件"，而非视为 import 错误。
+    """
+
+
+class UnsupportedFormatError(OpenCOCKeeperError):
+    """模组文件格式不受支持：扩展名不在解析器白名单内（如 v1 未接 pdf/docx）。"""
