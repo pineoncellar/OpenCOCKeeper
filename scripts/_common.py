@@ -63,10 +63,14 @@ def run_async(coro):
 
 
 def add_common_args(parser) -> None:
-    """给各脚本注入公共参数：--tier / --world-id。"""
+    """给各脚本注入公共参数：--tier / --world-id / --module。"""
     parser.add_argument(
         "--tier", default="standard", help="模型档位: fast / standard / smart"
     )
     parser.add_argument(
         "--world-id", default=None, help="固定 world_id（缺省自动生成，带时间戳）"
+    )
+    parser.add_argument(
+        "--module", default="test_module.docx",
+        help="世界绑定的模组文件名（须已放入 data/modules，默认 test_module.docx）",
     )

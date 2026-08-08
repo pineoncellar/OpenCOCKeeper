@@ -55,6 +55,7 @@ async def main(args) -> int:
     step("ensure_world")
     storage.ensure_world(
         world_id,
+        module_name=args.module,
         player_ids=["pc_01"],
         game_phase="EXPLORATION",
         global_recap="初始前情：调查员们抵达阿卡姆的清晨，雾气弥漫。",

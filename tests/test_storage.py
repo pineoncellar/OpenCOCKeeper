@@ -28,18 +28,19 @@ from src.storage.storage import Storage
 
 def test_ensure_world_defaults(storage):
     wid = make_world_id(900, "alpha")
-    world = storage.ensure_world(wid)
+    world = storage.ensure_world(wid, module_name="test_module.docx")
     assert world["world_id"] == wid
     assert world["player_ids"] == []
     assert world["game_phase"] == "EXPLORATION"
     assert world["global_flags"] == {}
     assert world["global_recap"] == ""  # 迁移 1 补列后默认空串
+    assert world["module_name"] == "test_module.docx"  # 迁移 3：世界绑定模组
 
 
 def test_ensure_world_idempotent(storage):
     wid = make_world_id(900, "beta")
-    first = storage.ensure_world(wid, player_ids=["player_01"])
-    second = storage.ensure_world(wid, player_ids=["player_99"])  # 已存在则忽略
+    first = storage.ensure_world(wid, module_name="test_module.docx", player_ids=["player_01"])
+    second = storage.ensure_world(wid, module_name="test_module.docx", player_ids=["player_99"])  # 已存在则忽略
     assert first["player_ids"] == ["player_01"]
     assert second["player_ids"] == ["player_01"]
 
@@ -71,8 +72,8 @@ def test_get_world_missing_returns_none(storage):
 def test_world_isolation(storage):
     a = make_world_id(900, "world_a")
     b = make_world_id(900, "world_b")
-    storage.ensure_world(a, global_recap="A 的提要")
-    storage.ensure_world(b, global_recap="B 的提要")
+    storage.ensure_world(a, module_name="test_module.docx", global_recap="A 的提要")
+    storage.ensure_world(b, module_name="test_module.docx", global_recap="B 的提要")
     storage.create_entity(a, "player_01", "PC", "费莉西蒂", hp=10)
     storage.append_turn(a, turn_num=1, state_diff={"numeric_changes": {"player_01.hp": -5}})
     storage.append_history(a, "user", "A 的对话")
@@ -201,7 +202,7 @@ def test_history_append_and_query(storage, world_id):
 
 def test_delete_world_cascades(storage):
     wid = make_world_id(900, "cascade")
-    storage.ensure_world(wid)
+    storage.ensure_world(wid, module_name="test_module.docx")
     storage.create_entity(wid, "player_01", "PC", "费莉西蒂")
     storage.append_turn(wid, turn_num=1, state_diff={"numeric_changes": {}})
     storage.append_history(wid, "user", "内容")
@@ -230,6 +231,8 @@ def test_migration_adds_global_recap_to_old_db(tmp_path):
     conn.close()
     assert "global_recap" in world_cols  # 迁移 1：宏观前情提要列
     assert "solidified" in turn_cols  # 迁移 2：固化进度标记列
+    assert "module_name" in world_cols  # 迁移 3：世界绑定模组列
     wid = make_world_id(900, "migrated")
-    s.ensure_world(wid)
+    s.ensure_world(wid, module_name="test_module.docx")
     assert s.get_world(wid)["global_recap"] == ""
+    assert s.get_world(wid)["module_name"] == "test_module.docx"

@@ -148,7 +148,7 @@ async def test_consolidate_requires_world(storage):
 
 async def test_search_is_world_isolated(storage, world_id):
     other = make_world_id(900, "other")
-    storage.ensure_world(other)
+    storage.ensure_world(other, module_name="test_module.docx")
     backend = FakeMemoryBackend()
     backend.add_events(
         [{"text": "队伍发现卡纳的日记"}], world_id=world_id, batch_turn_nums=[1]

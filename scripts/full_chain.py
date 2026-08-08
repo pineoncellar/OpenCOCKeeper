@@ -60,7 +60,7 @@ async def main(args) -> int:
 
     step("建世界 + PC")
     storage.ensure_world(
-        world_id, player_ids=["pc_01"], game_phase="EXPLORATION",
+        world_id, module_name=args.module, player_ids=["pc_01"], game_phase="EXPLORATION",
         global_recap="调查员们抵达阿卡姆，着手调查马车夫失踪案。",
     )
     storage.create_entity(

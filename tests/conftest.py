@@ -24,6 +24,9 @@ from src.storage.storage import Storage
 # 每个测试由 autouse 夹具重建的全新 FakeLLM，测试内经 fake_llm fixture 配置
 _fake_llm: FakeLLM | None = None
 
+# _tmp_modules 夹具在每个测试的临时目录创建的可绑定模组文件名
+TEST_MODULE_NAME = "test_module.docx"
+
 
 def pytest_configure(config):
     config.addinivalue_line(
@@ -43,11 +46,45 @@ def storage(tmp_db):
     return Storage(db=tmp_db)
 
 
+@pytest.fixture(autouse=True)
+def _tmp_modules(tmp_path, monkeypatch):
+    """每个测试独立的临时模组目录（含 test_module.docx 与对应划界缓存），并替换模块层 MODULES_DIR。
+
+    划界缓存预写为单章"测试模组"，让 build_index 走缓存路径不触发 LLM；
+    世界绑定强校验要求模组文件必须存在，测试世界统一绑定该文件。
+    """
+    import json
+    from src.module import loader as module_loader
+    from docx import Document
+    d = tmp_path / "modules"
+    d.mkdir()
+    p = d / TEST_MODULE_NAME
+    doc = Document()
+    doc.add_heading("测试模组", level=1)
+    doc.add_paragraph("这是测试模组的正文内容。")
+    doc.save(p)
+    # 预写划界缓存（单章），使 build_index 走缓存不触发 LLM 划界  # 状态：缓存预置
+    cache = d / ".cache"
+    cache.mkdir()
+    (cache / f"{TEST_MODULE_NAME}.json").write_text(
+        json.dumps(
+            {
+                "source_mtime": p.stat().st_mtime,
+                "sections": [{"title": "测试模组", "start_anchor": "测试模组"}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module_loader, "MODULES_DIR", d)
+    return d
+
+
 @pytest.fixture
-def world_id(storage):
+def world_id(storage, _tmp_modules):
     """测试段 world_id（900 段），逻辑上远离真实世界的 world_001.. 段。"""
     wid = ids.make_world_id(900, "test")
-    storage.ensure_world(wid)
+    storage.ensure_world(wid, module_name=TEST_MODULE_NAME)
     return wid
 
 
