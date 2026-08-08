@@ -15,6 +15,11 @@ dependencies = [
 rag = [
     "mem0ai>=0.1.0",
 ]
+retrieval = [
+    "jieba>=0.42.1",
+    "pypdf>=6.15.0",
+    "python-docx>=1.2.0",
+]
 
 [dependency-groups]
 dev = [
