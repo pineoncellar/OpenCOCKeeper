@@ -466,6 +466,19 @@ class Storage:
             ).fetchall()
         return [_decode_turn(r) for r in rows]
 
+    def next_turn_num(self, world_id: str) -> int:
+        """返回下一可用轮次号：当前最大 turn_num + 1，无轮次则从 1 开始。
+
+        主 Agent 编排器据此自增轮次，保证每次落库轮次号单调递增。
+        """
+        with self._db.read() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(turn_num), 0) + 1 AS n "
+                "FROM recent_turns WHERE world_id = ?",
+                (world_id,),
+            ).fetchone()
+        return int(row["n"])
+
     def get_unsolidified_turns(
         self, world_id: str, *, up_to_turn: Optional[int] = None
     ) -> List[dict]:

@@ -1,0 +1,197 @@
+# -*- coding: utf-8 -*-
+"""
+@File     :   assembler.py
+@Desc     :   Context Assembler——主 Agent 确定性上下文装配器：元认知指令 + 物理基础快照 + 近程对话
+@Note     :   红线：零逻辑推演、零 RAG 预检索、纯 SQLite 确定性数据；场景/NPC/线索一律由主 Agent
+             经 Function Calling 自主检索，装配器绝不预判；
+             context_data 契约约定 user / assistant 两键；不维护 location 等场景元数据，
+             场景与环境完全由 LLM 在叙事文本与检索中自然感知；
+             为保证近程对话完整，主 Agent 每轮统一经 apply_turn_change 落库（空 diff 也写轮）
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
+from src.core.config import get_settings
+from src.core.exceptions import WorldNotFoundError
+
+# ====================================================================
+# 元认知指令（System）
+# ====================================================================
+
+# 默认元认知模板：身份定位 + 知识盲区断言 + 行动铁律，可被 assemble(system=) 整体覆盖
+DEFAULT_SYSTEM = (
+    "你是《克苏鲁的呼唤》跑团系统的总导演与规则裁决者。"
+    "你的职责是依据规则做出判定、推动剧情走向并决定事实揭露；你不直接进行文学渲染，"
+    "最终叙事由下游 Narrator 负责。"
+    "你当前手头只有调查员的基础数值与宏观前情提要，不掌握任何场景细节、NPC 设定或模组秘密。"
+    "行动铁律：若玩家行动触及未知的环境细节、NPC 反应或线索，必须调用 search_module 或 query_memory；"
+    "涉及规则判定必须调用 check_and_update_stats；需要修改角色或环境状态时调用 manage_tags。"
+    "严禁凭空脑补任何未检索确认的信息。"
+    "当已获取足够信息支撑本轮裁决时，立即调用 present_directive 交卷结束本轮；"
+    "严禁无谓地反复检索同一主题，也不要替下游 Narrator 渲染最终叙事。"
+)
+
+
+# ====================================================================
+# 组装产物
+# ====================================================================
+
+
+@dataclass
+class ContextBundle:
+    """一次装配的产出：四段式结构，prompt 为可直接下发主 Agent 的完整 user 消息。"""
+
+    system: str                         # 元认知 system 指令
+    snapshot: str                       # Base Snapshot 文本（纯确定性数据）
+    recent: str                         # 近程对话文本
+    prompt: str                         # 完整 user 消息（snapshot + recent + 本轮行动）
+    action: Optional[str] = None        # 本轮玩家行动（原样保留）
+    pc_count: int = 0                   # 实际渲染的调查员数
+    recent_count: int = 0               # 实际渲染的对话轮数
+
+    @property
+    def messages(self) -> List[Dict[str, str]]:
+        """可直接喂给 run_tool_loop 的消息列表（system + user）。"""
+        return [
+            {"role": "system", "content": self.system},
+            {"role": "user", "content": self.prompt},
+        ]
+
+
+# ====================================================================
+# 渲染
+# ====================================================================
+
+
+def _render_item(item: Any) -> str:
+    """物品渲染：字典取 name 并附可选的 ammo 计数，标量直接转文本。"""
+    if isinstance(item, dict):
+        name = str(item.get("name", item))
+        ammo = item.get("ammo")
+        return f"{name}×{ammo}" if isinstance(ammo, int) else name
+    return str(item)
+
+
+def _render_pc(pc: Dict[str, Any]) -> str:
+    """渲染单个调查员硬数据：数值 + 动态 Tag + 背包物品清单。"""
+    parts = [
+        f"- {pc['name']}（{pc['id']}）",
+        f"  HP {pc['hp']}/{pc['hp_max']} | SAN {pc['san']}/{pc['san_max']} | "
+        f"MP {pc['mp']}/{pc['mp_max']}",
+    ]
+    if pc.get("tags"):
+        parts.append(f"  状态：{'、'.join(pc['tags'])}")
+    inv = pc.get("inventory") or []
+    if inv:
+        parts.append(f"  物品：{'、'.join(_render_item(i) for i in inv)}")
+    return "\n".join(parts)
+
+
+def _render_flags(game_phase: str, flags: Dict[str, Any]) -> str:
+    """全局标志渲染：游戏阶段独立成行，其余键值平铺；全空则占位。"""
+    if not flags and not game_phase:
+        return "（暂无）"
+    lines = []
+    if game_phase:
+        lines.append(f"当前阶段：{game_phase}")
+    lines.extend(f"{k}={v}" for k, v in flags.items())
+    return "\n".join(lines) or "（暂无）"
+
+
+def _render_snapshot(world: Dict[str, Any], pcs: List[dict]) -> str:
+    """Base Snapshot 文本：前情提要 + 全局标志 + 调查员状态。"""
+    recap = (world.get("global_recap") or "").strip() or "（暂无前情提要）"
+    section = ["【前情提要】", recap, "", "【全局标志】"]
+    section.append(
+        _render_flags(world.get("game_phase") or "", world.get("global_flags") or {})
+    )
+    if pcs:
+        section += ["", "【调查员状态】"]
+        for pc in pcs:
+            section += _render_pc(pc).split("\n")
+    else:
+        section += ["", "【调查员状态】", "（暂无绑定调查员）"]
+    return "\n".join(section)
+
+
+def _render_recent(turns: List[dict]) -> tuple[str, int]:
+    """近程对话文本：剥离 Tool Call 中间过程，仅保留 玩家输入 - Narrator 输出。
+
+    返回 (文本, 实际渲染轮数)；无对话内容的轮次（纯机械轮）跳过。
+    """
+    parts: List[str] = []
+    count = 0
+    for t in turns:
+        cd = t.get("context_data") or {}
+        user = cd.get("user")
+        assistant = cd.get("assistant")
+        if not user and not assistant:  # 状态：无对话内容的轮次跳过
+            continue
+        count += 1
+        if user:
+            parts.append(f"第 {t['turn_num']} 轮 玩家：{user}")
+        if assistant:
+            parts.append(f"守秘人：{assistant}")
+    text = "\n".join(parts)
+    return text or "（暂无历史对话）", count
+
+
+# ====================================================================
+# 装配入口
+# ====================================================================
+
+
+def _collect_pcs(storage, world_id: str, player_ids: List[str]) -> List[dict]:
+    """按 world_state.player_ids 显式绑定读取调查员实体，绝不越权加载 NPC/怪物。"""
+    pcs = []
+    for pid in player_ids:
+        entity = storage.get_entity(world_id, pid)
+        if entity is not None:
+            pcs.append(entity)
+    return pcs
+
+
+def _build_prompt(snapshot: str, recent: str, action: Optional[str]) -> str:
+    """完整 user 消息：快照 + 近程对话 + 本轮行动（行动缺省则仅前两者）。"""
+    parts = [snapshot, recent]
+    if action:
+        parts.append(f"【本轮行动】\n{action}")
+    return "\n\n".join(p for p in parts if p)
+
+
+def assemble(
+    storage,
+    world_id: str,
+    *,
+    action: Optional[str] = None,
+    limit: Optional[int] = None,
+    system: Optional[str] = None,
+) -> ContextBundle:
+    """装配主 Agent 初始上下文；世界不存在抛 WorldNotFoundError。
+
+    limit 为近程对话注入轮数，缺省取 config.context.assembler.recent_turns（默认 10）；
+    system 可覆盖默认元认知指令（测试与多场景定制用）。
+    """
+    world = storage.get_world(world_id)
+    if world is None:
+        raise WorldNotFoundError(f"世界不存在: {world_id}，请先 ensure_world 创建")
+    meta = system if system is not None else DEFAULT_SYSTEM
+    if limit is None:
+        limit = int(get_settings().get("context.assembler.recent_turns", 10))
+    turns = storage.get_recent_turns(world_id, limit=limit)
+    pcs = _collect_pcs(storage, world_id, world.get("player_ids") or [])
+    snapshot = _render_snapshot(world, pcs)
+    recent, recent_count = _render_recent(turns)
+    prompt = _build_prompt(snapshot, recent, action)
+    return ContextBundle(
+        system=meta,
+        snapshot=snapshot,
+        recent=recent,
+        prompt=prompt,
+        action=action,
+        pc_count=len(pcs),
+        recent_count=recent_count,
+    )

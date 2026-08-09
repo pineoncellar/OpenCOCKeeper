@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from src.agent.directive import PRESENT_DIRECTIVE_SCHEMA
 from src.tools.schemas import to_openai_function_schema as _stats_parameters
 
 # 注入参数：由 ToolRunner 在 execute 时强制注入，模型不可见、schema 中剔除
@@ -127,3 +128,12 @@ def build_tool_schemas() -> List[Dict[str, Any]]:
 def tool_names() -> List[str]:
     """返回 4 个原子工具的名字清单，供注册与日志使用。"""
     return ["search_module", "query_memory", "check_and_update_stats", "manage_tags"]
+
+
+def build_main_agent_schemas() -> List[Dict[str, Any]]:
+    """主 Agent 完整工具清单：4 原子工具 + present_directive 收尾工具。
+
+    供 Director.run_turn 喂给 call_llm(tools=...)；收尾工具由闭环 stop 语义拦截，
+    不参与普通工具执行（runner 侧另有兜底 handler 防失效）。
+    """
+    return [*build_tool_schemas(), PRESENT_DIRECTIVE_SCHEMA]

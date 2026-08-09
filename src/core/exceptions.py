@@ -68,3 +68,7 @@ class ItemNotFoundError(OpenCOCKeeperError):
 
 class ConflictingInputError(OpenCOCKeeperError):
     """输入互斥冲突：如 san_change 与 san_sc_expression 同时传入。"""
+
+
+class AgentLoopError(OpenCOCKeeperError):
+    """主 Agent 决策闭环失败：LLM 请求失败、未产出决策文本等，回合无法继续。"""

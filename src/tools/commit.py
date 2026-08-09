@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from ..storage.diff import empty_diff, is_empty, merge_diff
+from ..storage.diff import empty_diff, merge_diff
 
 
 def apply_turn_change(
@@ -20,17 +20,17 @@ def apply_turn_change(
     diffs: Optional[List[dict]] = None,
     *,
     context_data: Optional[dict] = None,
-) -> Optional[dict]:
-    """合并一轮所有工具 diff 并原子落库，返回该轮记录；空 diff 返回 None。
+) -> dict:
+    """合并一轮所有工具 diff 并原子落库，返回该轮记录；空 diff 也安全落库。
 
+    这是主 Agent 每轮唯一的落库入口——统一调用，无论本轮是否有物理变更，
+    都写入一条轮次记录（空 diff 为零变更），保证近程对话与轮次连续完整。
     diffs 为本轮各工具返回的 state_diff 列表；合并走 merge_diff（同值增删抵消），
     落库走 storage.commit_turn（单事务应用 + 写轮次）。
     """
     merged = empty_diff()
     for d in diffs or []:
         merge_diff(merged, d)
-    if is_empty(merged):
-        return None
     return storage.commit_turn(
         world_id, turn_num, state_diff=merged, context_data=context_data
     )

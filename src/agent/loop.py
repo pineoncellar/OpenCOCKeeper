@@ -23,6 +23,17 @@ logger = get_logger(__name__)
 # 工具执行函数签名：接收模型参数 + 注入参数，返回可 JSON 序列化的 dict
 ToolFunc = Callable[..., Dict[str, Any]]
 
+# 检索类工具：信息获取型调用，反复执行易陷入"永远查不够"的循环
+_SEARCH_TOOLS = frozenset({"search_module", "query_memory"})
+
+# 检索累计次数达到该阈值后，向消息流注入收敛提示，工程侧强制引导模型交卷
+CONVERGE_HINT_AFTER = 4
+
+_CONVERGE_HINT = (
+    "你已多次检索。若信息已足够支撑本轮裁决，请立即调用 present_directive 交卷结束本轮；"
+    "若仍不足，请基于已有信息做出当前最佳裁决，不要继续重复检索。"
+)
+
 
 # ====================================================================
 # ToolRunner — 工具注册表与分发器
@@ -181,6 +192,7 @@ class ToolLoopResult:
     tool_calls: List[dict] = field(default_factory=list)  # 全链路执行记录
     iterations: int = 0             # 实际请求轮数
     converged: bool = False         # 是否在轮数内收敛（False 表示触顶中止）
+    stop_call: Optional[dict] = None  # 命中 stop_tool_name 的收尾调用（name+arguments）
 
 
 def _build_assistant_tool_message(tool_calls: List[dict]) -> dict:
@@ -211,8 +223,10 @@ async def run_tool_loop(
     *,
     world_id: str,
     turn_num: int,
-    max_iterations: int = 6,
+    max_iterations: int = 8,
     temperature: Optional[float] = None,
+    stop_tool_name: Optional[str] = None,
+    hint_after: int = CONVERGE_HINT_AFTER,
 ) -> ToolLoopResult:
     """执行 Function Calling 闭环，返回收敛后的最终 LLMResult 与工具调用记录。
 
@@ -222,6 +236,9 @@ async def run_tool_loop(
     循环：传 tools 请求 → 模型返回 tool_calls 则执行并回填 → 再次请求，
     直到模型不再调用工具（收敛）或达到 max_iterations；收敛后 final.text
     即主 Agent 的决策/叙事输出。工具执行失败不中断，以错误镜像回填让模型自纠。
+
+    stop_tool_name 非空时，模型一旦调用该工具即视为"交卷"，不执行该工具也不回填，
+    收敛返回并把调用参数写入 result.stop_call（供调用方提取契约）。
     """
     if llm is None:
         from src import llm as llm_module
@@ -232,7 +249,13 @@ async def run_tool_loop(
 
     current: List[dict] = list(messages)
     executed: List[dict] = []
+    search_count = 0
+    hinted = False
     for i in range(1, max_iterations + 1):
+        # 状态：检索次数超阈值后注入收敛提示，工程侧强制引导模型收尾（不依赖模型自觉）
+        if not hinted and search_count >= hint_after:
+            current.append({"role": "system", "content": _CONVERGE_HINT})
+            hinted = True
         result = await llm(tier, current, tools=tools, temperature=temperature)
         if not result.is_ok:
             return ToolLoopResult(
@@ -243,9 +266,29 @@ async def run_tool_loop(
             return ToolLoopResult(
                 final=result, tool_calls=executed, iterations=i, converged=True
             )
+        # 状态：命中收尾工具（如 present_directive）立即交卷收敛，
+        # 不执行该工具也不回填，由调用方从 stop_call 提取交卷参数
+        if stop_tool_name:
+            stop_calls = [
+                tc for tc in result.tool_calls if tc["name"] == stop_tool_name
+            ]
+            if stop_calls:
+                stop = stop_calls[0]
+                return ToolLoopResult(
+                    final=result,
+                    tool_calls=executed,
+                    iterations=i,
+                    converged=True,
+                    stop_call={
+                        "name": stop["name"],
+                        "arguments": stop.get("arguments") or {},
+                    },
+                )
         # 状态：回填 assistant tool_calls 消息 + 各工具结果消息
         current.append(_build_assistant_tool_message(result.tool_calls))
         for tc in result.tool_calls:
+            if tc["name"] in _SEARCH_TOOLS:  # 状态：累计检索次数用于触发收敛提示
+                search_count += 1
             out = await runner.execute(
                 tc["name"], tc["arguments"], world_id=world_id, turn_num=turn_num
             )
