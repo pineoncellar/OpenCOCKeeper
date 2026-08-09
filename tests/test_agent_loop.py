@@ -16,6 +16,7 @@ import pytest
 from src.agent import (
     ToolRunner,
     build_default_runner,
+    build_main_agent_schemas,
     build_tool_schemas,
     run_tool_loop,
 )
@@ -25,6 +26,14 @@ from src.agent.schemas import tool_names
 # ====================================================================
 # 工具 schema 注册
 # ====================================================================
+
+
+def test_main_agent_schemas_includes_present_directive():
+    """主 Agent 工具清单：4 原子工具 + present_directive 收尾工具。"""
+    schemas = build_main_agent_schemas()
+    names = [s["function"]["name"] for s in schemas]
+    assert len(schemas) == 5
+    assert names[-1] == "present_directive"
 
 
 def test_build_tool_schemas_has_four_tools():
@@ -249,3 +258,58 @@ async def test_tool_loop_llm_failure_returns_early(world_id, fake_llm):
     assert result.iterations == 1
     assert not result.final.is_ok
     assert "boom" in result.final.error
+
+
+async def test_tool_loop_injects_converge_hint_after_many_searches(world_id, fake_llm):
+    """检索类工具反复调用超阈值后，闭环注入收敛提示引导模型收尾。"""
+    runner = ToolRunner()
+    runner.register("search_module", lambda **kw: {"ok": True, "echo": kw})
+    tools = build_tool_schemas()
+
+    def always_search(messages):
+        return {"text": None, "tool_calls": [
+            {"id": "c", "name": "search_module", "arguments": {"query": "x"}}]}
+
+    fake_llm.set_response("smart", always_search)
+    result = await run_tool_loop(
+        fake_llm.call, "smart", [{"role": "user", "content": "hi"}],
+        tools, runner, world_id=world_id, turn_num=1,
+        max_iterations=6, hint_after=2,
+    )
+    assert result.converged is False
+    # 触顶时 final.messages 含注入的收敛提示（role=system 且带 present_directive）
+    hints = [
+        m for m in result.final.messages
+        if m.get("role") == "system" and "present_directive" in m.get("content", "")
+    ]
+    assert len(hints) >= 1
+
+
+async def test_tool_loop_stop_tool_converges_and_extracts(storage, world_id, fake_llm):
+    """stop_tool_name 命中即交卷：收尾工具不执行、不回填，参数写入 stop_call。"""
+    _seed_pc(storage, world_id)
+    runner = build_default_runner(storage)
+    tools = build_main_agent_schemas()
+
+    def step(messages):
+        if any(m["role"] == "tool" for m in messages):
+            return {"text": None, "tool_calls": [
+                {"id": "c2", "name": "present_directive",
+                 "arguments": {"narrative_directive": "### 规则裁决\n- 侦查成功"}}]}
+        return {"text": None, "tool_calls": [
+            {"id": "c1", "name": "manage_tags",
+             "arguments": {"entity_id": "pc_01", "add_tags": ["流血"]}}]}
+
+    fake_llm.set_response("smart", step)
+    result = await run_tool_loop(
+        fake_llm.call, "smart", [{"role": "user", "content": "搜索房间"}],
+        tools, runner, world_id=world_id, turn_num=1,
+        stop_tool_name="present_directive",
+    )
+    assert result.converged is True
+    assert result.stop_call is not None
+    assert result.stop_call["name"] == "present_directive"
+    assert result.stop_call["arguments"]["narrative_directive"] == "### 规则裁决\n- 侦查成功"
+    # 只执行了首轮 manage_tags，收尾工具不执行
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0]["name"] == "manage_tags"

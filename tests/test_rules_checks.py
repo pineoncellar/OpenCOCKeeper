@@ -160,6 +160,17 @@ def test_resolve_missing_raises_keyerror():
         resolve_check_target({"侦查": 60}, "聆听")
 
 
+def test_resolve_skill_fallback_to_default():
+    # 卡上未写但技能默认值表有的技能（拉丁文），按默认 5 解析，不报缺
+    assert resolve_check_target({}, "拉丁文") == CheckTarget("skill", "拉丁文", 5)
+    assert resolve_check_target({"侦查": 60}, "拉丁语").value == 5
+
+
+def test_resolve_skill_table_value_overrides_default():
+    # 卡上明确写了拉丁文则优先卡值，忽略默认值
+    assert resolve_check_target({"拉丁文": 40}, "拉丁文").value == 40
+
+
 # ============================================
 # clamp 与 applied_delta
 # ============================================

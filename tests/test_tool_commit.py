@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 @File     :   test_tool_commit.py
-@Desc     :   合并提交协调器单测：多 diff 合并为单轮、空 diff 跳过、undo 全量还原
+@Desc     :   合并提交协调器单测：多 diff 合并为单轮、空 diff 零变更落库、undo 全量还原
 @Note     :   验证「一轮玩家输入 = 一条 turn = 一次撤销单元」的端到端闭环
 """
 
@@ -59,11 +59,12 @@ def test_undo_restores_everything(storage, world_id, entity):
     assert fresh["tags"] == ["旧标签"]
 
 
-def test_empty_diff_creates_no_turn(storage, world_id, entity):
-    # 空 diff（工具无实际变更）不产生轮次记录，避免膨胀
+def test_empty_diff_still_writes_turn(storage, world_id, entity):
+    # 空 diff 也安全落库（主 Agent 统一写入入口），零变更但轮次连续
     turn = commit(storage, world_id, 1, [])
-    assert turn is None
-    assert storage.get_turn(world_id, 1) is None
+    assert turn is not None
+    assert turn["state_diff"] == {"numeric_changes": {}, "tags": {}, "inventory": {}}
+    assert storage.get_turn(world_id, 1) is not None
 
 
 def test_same_turn_numeric_changes_accumulate(storage, world_id, entity):
