@@ -33,6 +33,8 @@ _INVERSE_ATTRIBUTES = {code: cn for cn, code in ATTRIBUTE_ALIASES.items()}
 SKILL_DEFAULTS = {
     "拉丁文": 5,
     "拉丁语": 5,
+    "图书馆": 5,
+    "图书馆使用": 5,
 }
 
 

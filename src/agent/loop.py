@@ -195,6 +195,24 @@ class ToolLoopResult:
     stop_call: Optional[dict] = None  # 命中 stop_tool_name 的收尾调用（name+arguments）
 
 
+def _append_converge_hint(messages: List[dict]) -> List[dict]:
+    """把收敛提示并入消息流首条 system 的末尾；无 system 时降级追加一条 system。
+
+    实测教训：在 tool 结果之后新增独立的中间 system 消息，会让部分模型把它误读为
+    对话末尾待续写内容，直接复读提示开头几个字（如'信息'/'若'）就收敛，产生残缺大纲。
+    因此提示必须并进首条 system，保持在标准位置。
+    """
+    merged = list(messages)
+    for i, m in enumerate(merged):
+        if m.get("role") == "system":
+            base = str(m.get("content") or "")
+            content = f"{base}\n\n{_CONVERGE_HINT}" if base else _CONVERGE_HINT
+            merged[i] = {**m, "content": content}
+            return merged
+    merged.append({"role": "system", "content": _CONVERGE_HINT})
+    return merged
+
+
 def _build_assistant_tool_message(tool_calls: List[dict]) -> dict:
     """把归一化的 tool_calls 拼回 OpenAI 传输格式的 assistant 消息。"""
     return {
@@ -252,9 +270,9 @@ async def run_tool_loop(
     search_count = 0
     hinted = False
     for i in range(1, max_iterations + 1):
-        # 状态：检索次数超阈值后注入收敛提示，工程侧强制引导模型收尾（不依赖模型自觉）
+        # 状态：检索次数超阈值后把收敛提示并入首条 system，强制引导模型收尾
         if not hinted and search_count >= hint_after:
-            current.append({"role": "system", "content": _CONVERGE_HINT})
+            current = _append_converge_hint(current)
             hinted = True
         result = await llm(tier, current, tools=tools, temperature=temperature)
         if not result.is_ok:

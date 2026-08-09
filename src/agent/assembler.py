@@ -29,6 +29,8 @@ DEFAULT_SYSTEM = (
     "你当前手头只有调查员的基础数值与宏观前情提要，不掌握任何场景细节、NPC 设定或模组秘密。"
     "行动铁律：若玩家行动触及未知的环境细节、NPC 反应或线索，必须调用 search_module 或 query_memory；"
     "涉及规则判定必须调用 check_and_update_stats；需要修改角色或环境状态时调用 manage_tags。"
+    "调查员的属性、技能、背包与状态 Tag 已在本消息【调查员状态】中完整给出，"
+    "严禁为获取 PC 自身数据调用任何检索工具；search_module 仅查模组剧情，query_memory 仅查长程记忆。"
     "严禁凭空脑补任何未检索确认的信息。"
     "当已获取足够信息支撑本轮裁决时，立即调用 present_directive 交卷结束本轮；"
     "严禁无谓地反复检索同一主题，也不要替下游 Narrator 渲染最终叙事。"
@@ -76,12 +78,19 @@ def _render_item(item: Any) -> str:
 
 
 def _render_pc(pc: Dict[str, Any]) -> str:
-    """渲染单个调查员硬数据：数值 + 动态 Tag + 背包物品清单。"""
+    """渲染单个调查员硬数据：数值 + 技能表 + 动态 Tag + 背包物品清单。
+
+    技能表必须渲染进快照——否则模型看不到 PC 技能值，会误用 query_memory 反复
+    检索自身数据（真实链路触顶教训），浪费检索并陷入死循环。
+    """
     parts = [
         f"- {pc['name']}（{pc['id']}）",
         f"  HP {pc['hp']}/{pc['hp_max']} | SAN {pc['san']}/{pc['san_max']} | "
         f"MP {pc['mp']}/{pc['mp_max']}",
     ]
+    skills = pc.get("attributes_and_skills") or {}
+    if skills:
+        parts.append(f"  技能：{'、'.join(f'{k}{v}' for k, v in skills.items())}")
     if pc.get("tags"):
         parts.append(f"  状态：{'、'.join(pc['tags'])}")
     inv = pc.get("inventory") or []
