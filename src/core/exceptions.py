@@ -48,3 +48,23 @@ class ModuleFileMissingError(OpenCOCKeeperError):
 
 class UnsupportedFormatError(OpenCOCKeeperError):
     """模组文件格式不受支持：扩展名不在解析器白名单内（如 v1 未接 pdf/docx）。"""
+
+
+class EmptyUpdateError(OpenCOCKeeperError):
+    """状态更新输入三段（检定/数值/背包）全空，无任何可执行操作。"""
+
+
+class SkillNotFoundError(OpenCOCKeeperError):
+    """检定项（技能/属性/理智）无法从实体属性表解析。"""
+
+
+class InvalidDiceExpressionError(OpenCOCKeeperError):
+    """骰子表达式非法：SC 表达式或伤害/治疗表达式无法解析。"""
+
+
+class ItemNotFoundError(OpenCOCKeeperError):
+    """背包移除目标不存在：items_to_remove 中的名称不在实体背包内。"""
+
+
+class ConflictingInputError(OpenCOCKeeperError):
+    """输入互斥冲突：如 san_change 与 san_sc_expression 同时传入。"""

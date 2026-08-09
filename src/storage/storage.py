@@ -401,6 +401,42 @@ class Storage:
             self._prune_turns(conn, world_id)
         return self.get_turn(world_id, turn_num)
 
+    def commit_turn(
+        self,
+        world_id: str,
+        turn_num: int,
+        *,
+        state_diff: Optional[dict] = None,
+        context_data: Optional[Dict[str, Any]] = None,
+    ) -> dict:
+        """单事务内应用 state_diff 并写入轮次记录（合并提交协调器唯一落库入口）。
+
+        与 append_turn 的差异：本方法把「应用 diff」与「写轮次」放同一事务，
+        保证一轮变更与回档记录原子一致，崩溃不留半截状态；空 diff 也允许。
+        """
+        self._require_world(world_id)
+        diff = state_diff or {}
+        turn_id = make_turn_id(world_id, turn_num)
+        with self._db.transaction() as conn:
+            if diff:
+                self._apply_diff(conn, world_id, diff)  # 状态：应用本轮变更
+            try:
+                conn.execute(
+                    "INSERT INTO recent_turns (world_id, turn_id, turn_num, "
+                    "context_data, state_diff) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        world_id,
+                        turn_id,
+                        turn_num,
+                        cjson.dumps(context_data or {}),
+                        cjson.dumps(diff),
+                    ),
+                )
+            except sqlite3.IntegrityError as e:
+                raise StorageError(f"写入轮次 {turn_id} 失败（可能重复）: {e}") from e
+            self._prune_turns(conn, world_id)
+        return self.get_turn(world_id, turn_num)
+
     def _prune_turns(self, conn: sqlite3.Connection, world_id: str) -> None:
         # 只保留最近 N 轮；被裁掉的轮次连同其 state_diff 一并删除，超出窗口即不可回档
         conn.execute(
