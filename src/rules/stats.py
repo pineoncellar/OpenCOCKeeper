@@ -28,6 +28,12 @@ SAN_ALIASES = frozenset(
     {"理智", "理智值", "SAN", "SAN值", "SANITY", "心智", "疯狂值"}
 )
 _INVERSE_ATTRIBUTES = {code: cn for cn, code in ATTRIBUTE_ALIASES.items()}
+# 未写在角色卡上的技能默认值（CoC 7th 语言类技能给基础值；如《红蔷薇之馆》读
+# 《阿特拉克-纳克亚纸草》需拉丁文检定，而预设卡未写，按默认 5 仍可检定）
+SKILL_DEFAULTS = {
+    "拉丁文": 5,
+    "拉丁语": 5,
+}
 
 
 # ============================================
@@ -109,5 +115,9 @@ def resolve_check_target(skills: Dict[str, int], name: str) -> CheckTarget:
         return CheckTarget(kind, key, int(value))
     value = skills.get(key)
     if value is None:
-        raise KeyError(key)
+        # 状态：卡上无该技能时回退技能默认值表，仍无则报缺（上层转 SkillNotFoundError）
+        default = SKILL_DEFAULTS.get(key)
+        if default is None:
+            raise KeyError(key)
+        return CheckTarget(kind, key, int(default))
     return CheckTarget(kind, key, int(value))
