@@ -44,6 +44,7 @@ def test_assemble_basic(storage, world_id):
     assert "严禁凭空脑补" in bundle.system
     assert "【前情提要】" in bundle.snapshot and "马车夫失踪案" in bundle.snapshot
     assert "费莉西蒂" in bundle.snapshot and "11/12" in bundle.snapshot
+    assert "侦查60" in bundle.snapshot  # 技能表必须渲染进快照，供主 Agent 直接使用
     assert "左轮手枪×6" in bundle.snapshot
     assert "清醒" in bundle.snapshot
     assert "行动2" in bundle.recent and "回应2" in bundle.recent

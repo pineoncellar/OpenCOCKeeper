@@ -171,6 +171,12 @@ def test_resolve_skill_table_value_overrides_default():
     assert resolve_check_target({"拉丁文": 40}, "拉丁文").value == 40
 
 
+def test_resolve_library_skill_default():
+    # 图书馆（含'图书馆使用'别名）同样有默认值，读模组找词典时不报缺
+    assert resolve_check_target({}, "图书馆").value == 5
+    assert resolve_check_target({}, "图书馆使用").value == 5
+
+
 # ============================================
 # clamp 与 applied_delta
 # ============================================

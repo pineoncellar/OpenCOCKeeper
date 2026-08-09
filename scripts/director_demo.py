@@ -201,15 +201,16 @@ async def _run_turn(storage, memory, world_id: str, turn_num: int, action: str, 
         world_id=world_id, turn_num=turn_num, temperature=0.4,
         stop_tool_name=PRESENT_DIRECTIVE_NAME,
     )
-    if not result.final.is_ok:
-        fail(f"闭环失败: {result.final.error}")
-        return None
+    # 状态：无论成败都先打印工具调用明细，便于诊断触顶/循环问题
     for tc in result.tool_calls:
         brief = json.dumps(tc["output"], ensure_ascii=False)[:200]
         step(f"工具 {tc['name']}({json.dumps(tc['arguments'], ensure_ascii=False)})")
         print(f"        -> {brief}")
     if not result.tool_calls:
-        warn("模型未调用任何工具，直接文本收敛")
+        warn("模型未调用任何工具")
+    if not result.final.is_ok:
+        fail(f"闭环失败: {result.final.error}")
+        return None
 
     step("③ 契约化与落库")
     if result.stop_call:

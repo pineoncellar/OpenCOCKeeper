@@ -261,7 +261,7 @@ async def test_tool_loop_llm_failure_returns_early(world_id, fake_llm):
 
 
 async def test_tool_loop_injects_converge_hint_after_many_searches(world_id, fake_llm):
-    """检索类工具反复调用超阈值后，闭环注入收敛提示引导模型收尾。"""
+    """检索类工具反复调用超阈值后，收敛提示并入首条 system 引导模型收尾。"""
     runner = ToolRunner()
     runner.register("search_module", lambda **kw: {"ok": True, "echo": kw})
     tools = build_tool_schemas()
@@ -272,17 +272,18 @@ async def test_tool_loop_injects_converge_hint_after_many_searches(world_id, fak
 
     fake_llm.set_response("smart", always_search)
     result = await run_tool_loop(
-        fake_llm.call, "smart", [{"role": "user", "content": "hi"}],
+        fake_llm.call, "smart",
+        [{"role": "system", "content": "你是守秘人"}, {"role": "user", "content": "hi"}],
         tools, runner, world_id=world_id, turn_num=1,
         max_iterations=6, hint_after=2,
     )
     assert result.converged is False
-    # 触顶时 final.messages 含注入的收敛提示（role=system 且带 present_directive）
-    hints = [
-        m for m in result.final.messages
-        if m.get("role") == "system" and "present_directive" in m.get("content", "")
-    ]
-    assert len(hints) >= 1
+    # 提示并入首条 system；不得在 tool 消息后新增独立 system（避免模型误读复读）
+    assert "present_directive" in result.final.messages[0]["content"]
+    assert not any(
+        i > 0 and m.get("role") == "system"
+        for i, m in enumerate(result.final.messages)
+    )
 
 
 async def test_tool_loop_stop_tool_converges_and_extracts(storage, world_id, fake_llm):
