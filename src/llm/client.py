@@ -26,7 +26,9 @@ DEFAULT_TIMEOUT = 60.0
 MAX_RETRIES = 2
 RETRY_DELAY_BASE = 1.0  # 退避基础秒数
 # ask_llm 允许透传给 call_llm 的参数白名单，拼错名字静默忽略而非抛 TypeError
-_LLM_KWARGS_ALLOWLIST = frozenset({"timeout", "max_retries", "temperature", "max_tokens"})
+_LLM_KWARGS_ALLOWLIST = frozenset(
+    {"timeout", "max_retries", "temperature", "max_tokens", "tools"}
+)
 
 
 # ====================================================================
@@ -46,10 +48,12 @@ class LLMResult:
     messages: list[dict]             # 请求消息列表（完整 prompt）
     success: bool = True             # 是否成功
     error: str | None = None         # 错误信息
+    tool_calls: list[dict] | None = None  # Function Calling 返回的工具调用意图
 
     @property
     def is_ok(self) -> bool:
-        return self.success and self.text is not None
+        # 有 tool_calls 但无正文是 Function Calling 的正常中间态，同样视为成功
+        return self.success and (self.text is not None or self.tool_calls)
 
     def brief(self) -> dict:
         """轻量摘要，供日志 / 调试使用。"""
@@ -82,6 +86,37 @@ def _build_api_url(base_url: str) -> str:
     if base_url.endswith("/v1"):
         return f"{base_url}/chat/completions"
     return f"{base_url}/v1/chat/completions"
+
+
+def _parse_tool_calls(raw: list | None) -> list[dict] | None:
+    """把 API 返回的 tool_calls 归一化为 [{id, name, arguments: dict}]；无则返回 None。
+
+    arguments 在传输中是 JSON 字符串，统一解析为 dict 供调度器直接使用；
+    解析失败按空 dict 兜底（宁可让工具报参数缺失，也不让调度器崩）。
+    """
+    if not raw:
+        return None
+    parsed: list[dict] = []
+    for tc in raw:
+        fn = tc.get("function") or {}
+        args_raw = fn.get("arguments") or "{}"
+        if isinstance(args_raw, str):
+            try:
+                args = json.loads(args_raw)
+            except (ValueError, TypeError):
+                args = {}  # 状态：JSON 解析失败降级空参数
+        elif isinstance(args_raw, dict):
+            args = args_raw
+        else:
+            args = {}
+        parsed.append(
+            {
+                "id": tc.get("id") or "",
+                "name": fn.get("name") or "",
+                "arguments": args,
+            }
+        )
+    return parsed or None
 
 
 def _get_tier_config(tier: str) -> tuple[Dict, Dict]:
@@ -122,6 +157,7 @@ async def call_llm(
     max_retries: int = MAX_RETRIES,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    tools: list[dict] | None = None,
 ) -> LLMResult:
     """调用 LLM 并返回 LLMResult（响应文本 + 调用元数据）。
 
@@ -156,6 +192,8 @@ async def call_llm(
         "max_tokens": max_tokens if max_tokens is not None else model_config.get("max_tokens", 1000),
         "stream": False,
     }
+    if tools:  # 状态：提供工具清单时启用 Function Calling
+        body["tools"] = tools
 
     last_error: str | None = None
 
@@ -194,11 +232,14 @@ async def call_llm(
                                          messages=messages, success=False,
                                          error="空 choices")
 
-                    content = choices[0].get("message", {}).get("content", "")
+                    message = choices[0].get("message", {})
+                    content = message.get("content", "")
+                    tool_calls = _parse_tool_calls(message.get("tool_calls"))
 
                     return LLMResult(text=content, tier=tier,
                                      model_name=model_config["model_name"],
-                                     messages=messages, success=True)
+                                     messages=messages, success=True,
+                                     tool_calls=tool_calls)
 
         except asyncio.TimeoutError:
             last_error = f"超时 ({timeout}s)"

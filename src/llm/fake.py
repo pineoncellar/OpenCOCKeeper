@@ -9,12 +9,14 @@
 
 from __future__ import annotations
 
-from typing import AsyncGenerator, Callable, Dict, List, Optional, Union
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Union
 
 from .client import LLMResult
 
 # 预设响应类型：纯文本 / 现成结果 / 异常(模拟失败) / 按消息动态生成
-FakeResponse = Union[str, LLMResult, Exception, Callable[[List[dict]], str]]
+FakeResponse = Union[
+    str, LLMResult, Exception, Callable[[List[dict]], Any], Dict[str, Any]
+]
 
 
 class FakeLLM:
@@ -80,6 +82,14 @@ class FakeLLM:
             )
         if isinstance(resp, LLMResult):
             return resp
+        # 状态：dict 带 tool_calls 键 → 模拟模型返回工具调用意图（Function Calling）
+        if isinstance(resp, dict) and "tool_calls" in resp:
+            return LLMResult(
+                text=resp.get("text"), tier=tier,
+                model_name=self.model_name(tier),
+                messages=messages, success=True,
+                tool_calls=resp["tool_calls"],
+            )
         return LLMResult(
             text=str(resp), tier=tier, model_name=self.model_name(tier),
             messages=messages, success=True,

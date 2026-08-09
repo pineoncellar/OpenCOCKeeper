@@ -97,6 +97,29 @@ async def mock_llm_server(monkeypatch):
 
     async def handler(req):
         body = await req.json()
+        # 状态：请求带 tools 时返回 tool_calls（Function Calling 模拟）
+        if body.get("tools"):
+            return web.json_response(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "manage_tags",
+                                            "arguments": '{"entity_id": "pc_01", "add_tags": ["流血"]}',
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    ]
+                }
+            )
         if body["stream"]:
             resp = web.StreamResponse()
             resp.headers["Content-Type"] = "text/event-stream"
@@ -175,3 +198,39 @@ async def test_call_llm_4xx_fails_without_retry(mock_error_server):
     result = await call_llm("standard", [{"role": "user", "content": "hi"}])
     assert not result.is_ok
     assert result.error == "HTTP 401"
+
+
+# ====================================================================
+# Function Calling：tools 请求透传与 tool_calls 解析
+# ====================================================================
+
+
+@pytest.mark.real_llm
+async def test_call_llm_parses_tool_calls(mock_llm_server):
+    tools = [
+        {
+            "type": "function",
+            "function": {"name": "manage_tags", "description": "增删标签",
+                         "parameters": {"type": "object", "properties": {}}},
+        }
+    ]
+    result = await call_llm(
+        "standard", [{"role": "user", "content": "hi"}], tools=tools
+    )
+    # 模型返回 tool_calls 时正文为空，但属于成功中间态
+    assert result.is_ok
+    assert result.text is None
+    assert result.tool_calls
+    tc = result.tool_calls[0]
+    assert tc["id"] == "call_1"
+    assert tc["name"] == "manage_tags"
+    # arguments 已从 JSON 字符串解析为 dict，供调度器直接使用
+    assert tc["arguments"] == {"entity_id": "pc_01", "add_tags": ["流血"]}
+
+
+@pytest.mark.real_llm
+async def test_call_llm_no_tools_returns_no_tool_calls(mock_llm_server):
+    result = await call_llm("standard", [{"role": "user", "content": "hi"}])
+    assert result.is_ok
+    assert result.text == "OK-PAYLOAD"
+    assert result.tool_calls is None
