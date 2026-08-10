@@ -113,6 +113,7 @@ async def test_runner_stats_strips_diff(storage, world_id):
     _seed_pc(storage, world_id)
     runner = build_default_runner(storage, rng=random.Random(42))
     runner.reset_diffs()
+    runner.reset_checks()
     out = await runner.execute(
         "check_and_update_stats",
         {"entity_id": "pc_01", "skill_or_attribute": "侦查", "difficulty": "regular"},
@@ -122,12 +123,23 @@ async def test_runner_stats_strips_diff(storage, world_id):
     assert out["summary"]
     assert "state_diff" not in out  # 状态：diff 已抽出，不回填模型
     assert len(runner.collected_diffs) == 1  # 空 diff 也收集（本轮无状态变更）
+    # 状态：检定结果保留权威副本（回填模型用于写手记，副本供 Narrator 核对）
+    assert "check" in out  # 模型仍可见检定结果
+    assert len(runner.collected_checks) == 1
+    check = runner.collected_checks[0]
+    assert check["entity_id"] == "pc_01"  # 副本带实体标识
+    assert isinstance(check["roll_value"], int)
+    assert isinstance(check["threshold"], int)
+    assert check["success_level"] in {"CRITICAL", "EXTREME", "HARD", "REGULAR", "FAILURE", "FUMBLE"}
+    assert check["success_level_label"]
+    assert isinstance(check["is_success"], bool)
 
 
 async def test_runner_tags_collects_diff(storage, world_id):
     _seed_pc(storage, world_id)
     runner = build_default_runner(storage)
     runner.reset_diffs()
+    runner.reset_checks()
     out = await runner.execute(
         "manage_tags",
         {"entity_id": "pc_01", "add_tags": ["流血"], "remove_tags": ["清醒"]},
@@ -137,6 +149,7 @@ async def test_runner_tags_collects_diff(storage, world_id):
     assert "state_diff" not in out
     assert len(runner.collected_diffs) == 1
     assert "pc_01" in runner.collected_diffs[0]["tags"]
+    assert runner.collected_checks == []  # 无检定工具不产生 check
 
 
 # ====================================================================
@@ -183,6 +196,8 @@ async def test_tool_loop_converges_with_two_tools(storage, world_id, fake_llm):
     # 两个工具各产出一个 diff（manage_tags 真实增删 + stats hp 变更）
     assert len(runner.collected_diffs) == 2
     assert runner.collected_diffs[1]["numeric_changes"]["pc_01.hp"] == -3
+    # hp 变更无检定段 → 无检定结果副本
+    assert runner.collected_checks == []
 
 
 async def test_tool_loop_injects_world_and_turn(world_id, fake_llm):

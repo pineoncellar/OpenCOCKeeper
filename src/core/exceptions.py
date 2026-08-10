@@ -72,3 +72,11 @@ class ConflictingInputError(OpenCOCKeeperError):
 
 class AgentLoopError(OpenCOCKeeperError):
     """主 Agent 决策闭环失败：LLM 请求失败、未产出决策文本等，回合无法继续。"""
+
+
+class NarratorError(OpenCOCKeeperError):
+    """润色 Agent（Narrator）演播失败：LLM 请求失败或未产出叙事文本。
+
+    轮次物理状态已在 Director.run_turn 落库，Narrator 失败不影响回档；
+    上层管线可捕获后以导演手记降级对外输出，保证玩家至少拿到裁决内容。
+    """

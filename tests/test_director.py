@@ -25,7 +25,7 @@ def _seed_pc(storage, world_id, hp=10, san=58):
 
 
 def _step_stats_then_directive(narrative="### 规则裁决\n- 侦查成功（18/60）"):
-    """首轮调用 check_and_update_stats 扣血，回填后调用 present_directive 交卷。"""
+    """首轮调用 check_and_update_stats（含检定）扣血，回填后调用 present_directive 交卷。"""
 
     def step(messages):
         if any(m["role"] == "tool" for m in messages):
@@ -34,7 +34,7 @@ def _step_stats_then_directive(narrative="### 规则裁决\n- 侦查成功（18/
                  "arguments": {"narrative_directive": narrative}}]}
         return {"text": None, "tool_calls": [
             {"id": "c1", "name": "check_and_update_stats",
-             "arguments": {"entity_id": "pc_01", "hp_change": -3}}]}
+             "arguments": {"entity_id": "pc_01", "skill_or_attribute": "侦查", "hp_change": -3}}]}
 
     return step
 
@@ -51,10 +51,18 @@ async def test_run_turn_converges_and_persists(storage, world_id, fake_llm):
     assert directive.narrative_directive.startswith("### 规则裁决")
     # state_changes 程序权威（模型不可见）
     assert directive.state_changes["numeric_changes"] == {"pc_01.hp": -3}
-    # 落库轮次：对话 + diff
+    # 检定结果权威副本：掷骰值 / 成功等级 / 实体标识保留并透传 Narrator
+    assert len(directive.checks) == 1
+    check = directive.checks[0]
+    assert check["entity_id"] == "pc_01"
+    assert check["success_level"] in {"CRITICAL", "EXTREME", "HARD", "REGULAR", "FAILURE", "FUMBLE"}
+    assert check["success_level_label"]
+    assert isinstance(check["roll_value"], int)
+    # 落库轮次：对话 + diff + 检定结果（审计/日志留存）
     turn = storage.get_turn(world_id, 1)
     assert turn["context_data"]["user"] == "调查员试图撬开暗门"
     assert turn["context_data"]["assistant"] == directive.narrative_directive
+    assert turn["context_data"]["checks"] == directive.checks
     assert storage.get_entity(world_id, "pc_01")["hp"] == 7
     # 回档可逆
     storage.undo_turn(world_id, 1)

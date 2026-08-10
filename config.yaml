@@ -45,7 +45,7 @@ storage:
 # ------------------------------------------------------------
 module:
   structure:
-    enabled: true               # 启用导入期 LLM 划界；false 则整篇一段兜底（不调 LLM）
+    enabled: true               # 启用导入期 LLM 划界；false 则整篇一段
     llm_tier: "fast"            # 划界用模型档位（低成本大上下文）
     chunk_chars: 8000           # 长文本分块大小（字），块间自动重叠 10% 防切到标题
 
@@ -69,6 +69,19 @@ memory:
     # false（默认）：SiliconFlow 等非 matryoshka 端点会以 400/20015 拒绝该参数；
     # 仅当端点支持按维度截断（如 OpenAI text-embedding-3-small）时才设为 true。
     pass_embedding_dims: false
+
+# ------------------------------------------------------------
+# 上下文装配（Context Assembler）
+# 主 Agent 初始上下文的确定性装配参数；近程对话注入轮数属软预算，
+# 实际 Token 占用随对话长度浮动
+# ------------------------------------------------------------
+context:
+  assembler:
+    recent_turns: 10                # 近程对话注入轮数
+  # 润色 Agent（Narrator）：演播模型档位与温度
+  narrator:
+    llm_tier: "standard"            # 文学表达优先档（非裁决档）
+    temperature: 0.7                # 略高于裁决档，保留演播自由度
 
 # ------------------------------------------------------------
 # 日志

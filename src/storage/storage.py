@@ -437,6 +437,29 @@ class Storage:
             self._prune_turns(conn, world_id)
         return self.get_turn(world_id, turn_num)
 
+    def update_turn_context_data(
+        self, world_id: str, turn_num: int, **updates: Any
+    ) -> dict:
+        """合并更新某轮次 context_data 字段，不触碰 state_diff（回档单元不变）。
+
+        供串行管线把 Narrator 玩家视角叙事覆盖 assistant、手记转存 directive 等；
+        updates 为要合并写回的键值；轮次不存在抛 TurnNotFoundError。
+        """
+        turn = self.get_turn(world_id, turn_num)
+        if turn is None:
+            raise TurnNotFoundError(
+                f"轮次不存在: world={world_id} turn={turn_num}"
+            )
+        merged = dict(turn.get("context_data") or {})
+        merged.update(updates)
+        with self._db.transaction() as conn:
+            conn.execute(
+                "UPDATE recent_turns SET context_data = ? "
+                "WHERE world_id = ? AND turn_num = ?",
+                (cjson.dumps(merged), world_id, turn_num),
+            )
+        return self.get_turn(world_id, turn_num)
+
     def _prune_turns(self, conn: sqlite3.Connection, world_id: str) -> None:
         # 只保留最近 N 轮；被裁掉的轮次连同其 state_diff 一并删除，超出窗口即不可回档
         conn.execute(

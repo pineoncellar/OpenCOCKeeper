@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 @File     :   agent/__init__.py
-@Desc     :   主 Agent 层：工具 schema + Function Calling 闭环 + Context Assembler + Director 编排
+@Desc     :   Agent 层：工具 schema + Function Calling 闭环 + Context Assembler + Director 编排
+             + Narrator 润色 + 串行管线
 @Note     :   四件套——工具清单（4 原子 + present_directive 收尾）、ToolRunner 执行、
              run_tool_loop 闭环、ContextBundle 装配、Director.run_turn 回合编排；
+             下游——Narrator 无状态演播器、run_narrated_turn 串行管线（裁决→演播→落库）；
              world_id / turn_num 经 run_tool_loop 注入，模型不可见
 """
 
@@ -22,6 +24,12 @@ from src.agent.directive import (
     extract_narrative_directive,
 )
 from src.agent.director import Director
+from src.agent.narrator import (
+    Narrator,
+    NARRATOR_SYSTEM,
+    build_narrator_messages,
+)
+from src.agent.pipeline import NarratedTurn, run_narrated_turn
 
 __all__ = [
     "build_tool_schemas",
@@ -39,4 +47,9 @@ __all__ = [
     "PRESENT_DIRECTIVE_SCHEMA",
     "extract_narrative_directive",
     "Director",
+    "Narrator",
+    "NARRATOR_SYSTEM",
+    "build_narrator_messages",
+    "NarratedTurn",
+    "run_narrated_turn",
 ]
