@@ -50,9 +50,9 @@ def search_cards_dir(keyword: str) -> List[Path]:
 
 
 def resolve_card_source(source: str) -> Path:
-    """解析 /card import 的来源：显式路径优先，其次为 cards 目录内文件名。
+    """解析 /card import 的来源：显式路径优先，其次 cards 目录内文件名（缺扩展名自动补 .xlsx）。
 
-    找不到抛 FileNotFoundError（带可用列表提示）。
+    输入"费利西蒂"即命中"费利西蒂.xlsx"；找不到抛 FileNotFoundError（带可用列表提示）。
     """
     raw = (source or "").strip()
     if not raw:
@@ -60,10 +60,14 @@ def resolve_card_source(source: str) -> Path:
     path = Path(raw)
     if path.is_file():
         return path
-    # 视为 cards 目录内文件名
+    # 状态：cards 目录内精确文件名，缺扩展名自动补 .xlsx
     candidate = CARDS_DIR / raw
     if candidate.is_file():
         return candidate
+    if not candidate.suffix:
+        candidate = CARDS_DIR / f"{raw}.xlsx"
+        if candidate.is_file():
+            return candidate
     available = "、".join(p.stem for p in list_cards()) or "（空）"
     raise FileNotFoundError(
         f"角色卡文件不存在: {raw}\n当前 data/cards 可用: {available}"

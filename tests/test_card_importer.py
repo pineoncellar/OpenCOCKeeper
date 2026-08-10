@@ -160,6 +160,30 @@ def test_parse_empty_background(tmp_path):
     assert entity["background"] == {}
 
 
+def test_resolve_card_source_auto_extension(tmp_path, monkeypatch):
+    """resolve_card_source：缺扩展名自动补 .xlsx（"费利西蒂"命中"费利西蒂.xlsx"）。"""
+    import pytest
+
+    from src.tools import card_importer
+
+    d = tmp_path / "cards"
+    d.mkdir()
+    card = d / "费利西蒂.xlsx"
+    card.write_bytes(b"x")
+    monkeypatch.setattr(card_importer, "CARDS_DIR", d)
+    # 缺扩展名自动补
+    assert card_importer.resolve_card_source("费利西蒂") == card
+    # 带扩展名精确命中
+    assert card_importer.resolve_card_source("费利西蒂.xlsx") == card
+    # 已有其他扩展名不补
+    xls = d / "卡.xls"
+    xls.write_bytes(b"x")
+    assert card_importer.resolve_card_source("卡.xls") == xls
+    # 0 命中：报错
+    with pytest.raises(FileNotFoundError):
+        card_importer.resolve_card_source("不存在的卡")
+
+
 def test_is_label():
     """标签判定：多行/含标签关键词的单元格判为标签。"""
     assert _is_label("姓名")
