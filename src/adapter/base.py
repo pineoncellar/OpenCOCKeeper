@@ -157,6 +157,8 @@ class AbstractAdapter(ABC):
             return await self._handle_rollback_cmd(cmd.strip(), sid)
         if low.startswith("/memory"):
             return await self._handle_memory_cmd(cmd.strip(), sid)
+        if low.startswith("/card"):
+            return await self._handle_card_cmd(cmd.strip(), sid)
         if low in ("/module", "/module list", "/module ls"):
             return await self._handle_module_cmd(sid)
         return OutboundMessage.system_msg(f"未知命令: {cmd}（输入 /help 查看用法）", level="warn", session_id=sid)
@@ -189,13 +191,17 @@ class AbstractAdapter(ABC):
             return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
         if sub == "start":
-            module_name = parts[2].strip() if len(parts) > 2 else ""
-            if not module_name:
+            rest = parts[2].strip() if len(parts) > 2 else ""
+            if not rest:
                 return OutboundMessage.system_msg(
-                    "用法: /world start <模组名>\n"
-                    "使用 /module list 查看 data/modules 下可绑定的模组文件。",
+                    "用法: /world start <模组名> [角色名...]\n"
+                    "使用 /module list 查看可绑定的模组文件；"
+                    "角色名可选（匹配种子库中的角色，先 /card import）。",
                     level="warn", session_id=sid,
                 )
+            tokens = rest.split()
+            module_name = tokens[0]
+            card_names = tokens[1:]  # 状态：可选种子角色名（创建世界时选择并拷贝）
             try:
                 world_id = self._create_world_for_module(module_name)
             except Exception as e:  # noqa: BLE001
@@ -204,11 +210,24 @@ class AbstractAdapter(ABC):
                     f"创建世界失败: {type(e).__name__}: {e}",
                     level="error", session_id=sid,
                 )
+            bound = []
+            if card_names:
+                from src.tools.card_store import copy_seed_to_world, list_seed_cards
+
+                seeds = list_seed_cards()
+                for cn in card_names:
+                    hit = next((s for s in seeds if cn in s["name"]), None)
+                    if hit:
+                        eid = copy_seed_to_world(self.storage, hit["seed_id"], world_id)
+                        bound.append(f"{hit['name']}({eid})")
+                    else:
+                        bound.append(f"{cn}(未找到种子角色)")
             self._world_id = world_id  # 状态：创建即切换
-            return OutboundMessage.system_msg(
-                f"世界已创建并切换: {world_id}（模组: {module_name}）\n"
-                f"直接输入行动文本开始探索。", session_id=sid,
-            )
+            lines = [f"世界已创建并切换: {world_id}（模组: {module_name}）"]
+            if bound:
+                lines.append("已绑定 PC: " + "、".join(bound))
+            lines.append("直接输入行动文本开始探索。")
+            return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
         if sub == "use":
             world_id = parts[2].strip() if len(parts) > 2 else ""
@@ -370,6 +389,103 @@ class AbstractAdapter(ABC):
         return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
     # ============================================
+    # 角色卡命令
+    # ============================================
+
+    async def _handle_card_cmd(self, cmd: str, sid: str) -> OutboundMessage:
+        """处理 /card 系列命令：import / list / use。
+
+        /card import <来源>  解析 xlsx 角色卡并存入种子库（world_id 空，不绑定任何世界）
+        /card list           列出种子库中的候选角色（供 /world start 或 /card use 选择）
+        /card use <种子id>   把种子角色拷贝一份到当前世界并绑定为 PC
+        """
+        parts = cmd.split(maxsplit=2)
+        sub = parts[1].strip().lower() if len(parts) > 1 else "list"
+
+        if sub == "import":
+            source = parts[2].strip() if len(parts) > 2 else ""
+            try:
+                from src.tools.card_importer import parse_investigator_xlsx, resolve_card_source
+                from src.tools.card_store import save_seed
+
+                path = resolve_card_source(source)
+                parsed = parse_investigator_xlsx(path)
+                meta, entity = parsed["meta"], parsed["entity"]
+                seed_id = save_seed(entity, meta, source=str(path))
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"角色卡导入失败: {e}")
+                return OutboundMessage.system_msg(
+                    f"角色卡导入失败: {type(e).__name__}: {e}",
+                    level="error", session_id=sid,
+                )
+            lines = [
+                f"角色卡已导入种子库: {seed_id}",
+                f"  姓名: {meta.get('name') or '-'}  职业: {meta.get('occupation') or '-'}"
+                f"  幸运: {meta.get('luck', 0)}",
+            ]
+            if meta.get("gender") or meta.get("age") or meta.get("birthplace"):
+                lines.append(
+                    f"  性别: {meta.get('gender') or '-'}  年龄: {meta.get('age', 0)}"
+                    f"  住地: {meta.get('birthplace') or '-'}"
+                )
+            lines.append("用 /world start <模组名> <角色名> 创建世界并绑定，或 /card use 加入当前世界。")
+            return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
+
+        if sub == "list":
+            from src.tools.card_store import list_seed_cards
+
+            seeds = list_seed_cards()
+            if not seeds:
+                return OutboundMessage.system_msg(
+                    "种子库为空。使用 /card import <xlsx路径或 data/cards 内文件名> 导入。",
+                    session_id=sid,
+                )
+            lines = [f"种子角色 ({len(seeds)} 个，/world start 或 /card use 使用):"]
+            for s in seeds:
+                lines.append(
+                    f"  {s['seed_id']}  {s['name']}  [{s['occupation'] or '-'}]"
+                    f"  幸运{s['luck']}"
+                )
+            lines.append("用法: /world start <模组名> <角色名>，或 /card use <种子id>。")
+            return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
+
+        if sub == "use":
+            seed_id = parts[2].strip() if len(parts) > 2 else ""
+            world_id = self._world_id
+            if not seed_id:
+                return OutboundMessage.system_msg(
+                    "用法: /card use <种子id>\n使用 /card list 查看可用的种子角色。",
+                    level="warn", session_id=sid,
+                )
+            if not world_id:
+                return OutboundMessage.system_msg(
+                    "当前未选择世界。先 /world start <模组名> 创建，或 /world use <世界ID> 切换。",
+                    level="warn", session_id=sid,
+                )
+            try:
+                from src.tools.card_store import copy_seed_to_world
+
+                entity_id = copy_seed_to_world(self.storage, seed_id, world_id)
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"种子角色加入世界失败: {e}")
+                return OutboundMessage.system_msg(
+                    f"加入世界失败: {type(e).__name__}: {e}",
+                    level="error", session_id=sid,
+                )
+            return OutboundMessage.system_msg(
+                f"种子角色已拷贝到当前世界 {world_id}，实体 ID: {entity_id}。",
+                session_id=sid,
+            )
+
+        return OutboundMessage.system_msg(
+            "用法:\n"
+            "  /card import <来源>    - 导入 xlsx 角色卡到种子库（路径或 data/cards 内文件名）\n"
+            "  /card list             - 列出种子库中的候选角色\n"
+            "  /card use <种子id>     - 把种子角色拷贝到当前世界",
+            level="warn", session_id=sid,
+        )
+
+    # ============================================
     # 模组列表命令
     # ============================================
 
@@ -406,9 +522,13 @@ _HELP_TEXT = (
     "可用命令:\n"
     "======= 世界 =======\n"
     "  /world list                - 列出所有世界\n"
-    "  /world start <模组名>      - 创建新世界并绑定模组（data/modules 下文件）\n"
+    "  /world start <模组名> [角色名...] - 创建世界并绑定模组，可选绑定种子角色\n"
     "  /world use <世界ID>        - 切换当前世界\n"
     "  /module list               - 列出可绑定的模组文件\n"
+    "======= 角色卡 =======\n"
+    "  /card import <来源>        - 导入 xlsx 角色卡到种子库（路径或 data/cards 内文件名）\n"
+    "  /card list                 - 列出种子库中的候选角色\n"
+    "  /card use <种子id>         - 把种子角色拷贝到当前世界\n"
     "======= 游戏 =======\n"
     "  /status                    - 查看当前世界与 PC 状态\n"
     "  /rollback                  - 列出最近轮次\n"

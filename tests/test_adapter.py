@@ -340,3 +340,118 @@ def test_create_adapter_unknown(monkeypatch):
 
     with pytest.raises(ValueError):
         create_adapter(storage=None, memory=None, worker=None)
+
+
+# ============================================
+# 角色卡命令（/card）
+# ============================================
+
+
+def _make_min_card(path) -> None:
+    """构造一张最小"人物卡" xlsx（骰子工厂布局坐标）。"""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "人物卡"
+    ws.cell(row=3, column=5, value="费莉西蒂·利丝")   # E3 姓名
+    ws.cell(row=6, column=13, value="女")             # M6 性别
+    ws.cell(row=6, column=5, value=24)                # E6 年龄
+    ws.cell(row=7, column=5, value="伦敦")            # E7 住地
+    ws.cell(row=5, column=5, value="私家侦探")        # E5 职业
+    stats = [
+        ("STR", 21, 3, 50), ("DEX", 27, 3, 60), ("POW", 33, 3, 70),
+        ("CON", 21, 5, 60), ("APP", 27, 5, 50), ("EDU", 33, 5, 70),
+        ("SIZ", 21, 7, 50), ("INT", 27, 7, 70),
+    ]
+    for _, col, row, v in stats:
+        ws.cell(row=row, column=col, value=v)
+    wb.save(path)
+
+
+async def test_card_list_empty(storage, tmp_path, monkeypatch, fake_llm):
+    """种子库为空时 /card list 提示先导入。"""
+    from src.tools import card_store
+
+    monkeypatch.setattr(card_store, "SEED_DIR", tmp_path / "seeds")
+    adapter = CliAdapter(storage=storage, llm=fake_llm.call)
+    out = await adapter.handle(InboundMessage.system_cmd("/card list", session_id="s"))
+    assert out.type == MessageType.SYSTEM_MSG
+    assert "种子库为空" in out.text
+
+
+async def test_card_import_and_world_start_with_pc(storage, tmp_path, monkeypatch, fake_llm):
+    """/card import 入种子库 + /world start 带角色名建世界并绑定 PC。"""
+    from src.tools import card_importer, card_store
+
+    seeds = tmp_path / "seeds"
+    cards = tmp_path / "cards"
+    cards.mkdir()
+    monkeypatch.setattr(card_store, "SEED_DIR", seeds)
+    monkeypatch.setattr(card_importer, "CARDS_DIR", cards)
+    _make_min_card(cards / "费莉西蒂.xlsx")
+
+    adapter = CliAdapter(storage=storage, llm=fake_llm.call)
+
+    out = await adapter.handle(
+        InboundMessage.system_cmd("/card import 费莉西蒂.xlsx", session_id="s")
+    )
+    assert "角色卡已导入种子库" in out.text
+    seed_rows = card_store.list_seed_cards()
+    assert len(seed_rows) == 1
+    assert "费莉西蒂" in seed_rows[0]["name"]
+    assert seed_rows[0]["occupation"] == "私家侦探"
+
+    out = await adapter.handle(
+        InboundMessage.system_cmd(f"/world start {TEST_MODULE_NAME} 费莉西蒂", session_id="s")
+    )
+    assert "世界已创建并切换" in out.text
+    assert "已绑定 PC" in out.text
+    assert adapter._world_id is not None
+    pcs = storage.get_entities(adapter._world_id, entity_type="PC")
+    assert len(pcs) == 1
+    assert pcs[0]["name"].startswith("费莉西蒂")
+
+
+async def test_card_use_copies_to_current_world(storage, world_id, tmp_path, monkeypatch, fake_llm):
+    """/card use 把种子角色拷贝到当前世界并绑定。"""
+    from src.tools import card_store
+
+    monkeypatch.setattr(card_store, "SEED_DIR", tmp_path / "seeds")
+    seed_id = card_store.save_seed(
+        {
+            "entity_type": "PC", "name": "约翰", "hp": 10, "hp_max": 12,
+            "mp": 9, "mp_max": 9, "san": 60, "san_max": 99,
+            "attributes_and_skills": {}, "inventory": [], "background": {}, "tags": [],
+        },
+        {"name": "约翰", "occupation": "作家"}, source="x",
+    )
+    adapter = CliAdapter(storage=storage, llm=fake_llm.call)
+    adapter._world_id = world_id
+    out = await adapter.handle(InboundMessage.system_cmd(f"/card use {seed_id}", session_id="s"))
+    assert "已拷贝到当前世界" in out.text
+    pcs = storage.get_entities(world_id, entity_type="PC")
+    assert any(p["name"] == "约翰" for p in pcs)
+
+
+async def test_card_use_without_world(storage, tmp_path, monkeypatch, fake_llm):
+    """未选世界时 /card use 提示先建世界。"""
+    from src.tools import card_store
+
+    monkeypatch.setattr(card_store, "SEED_DIR", tmp_path / "seeds")
+    adapter = CliAdapter(storage=storage, llm=fake_llm.call)
+    out = await adapter.handle(InboundMessage.system_cmd("/card use card_xxx", session_id="s"))
+    assert "当前未选择世界" in out.text
+
+
+async def test_card_import_bad_source(storage, tmp_path, monkeypatch, fake_llm):
+    """导入不存在的文件返回明确错误。"""
+    from src.tools import card_importer
+
+    monkeypatch.setattr(card_importer, "CARDS_DIR", tmp_path / "empty_cards")
+    adapter = CliAdapter(storage=storage, llm=fake_llm.call)
+    out = await adapter.handle(
+        InboundMessage.system_cmd("/card import 不存在.xlsx", session_id="s")
+    )
+    assert out.data["level"] == "error"
+    assert "角色卡导入失败" in out.text

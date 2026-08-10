@@ -14,9 +14,60 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from ..core.config import PROJECT_ROOT
 from ..core.log import get_logger
 
 logger = get_logger(__name__)
+
+
+# ====================================================================
+# 角色卡源文件目录
+# ====================================================================
+
+# 存放原始 .xlsx 角色卡文件的默认目录（自动创建），/card import 在此检索
+CARDS_DIR = PROJECT_ROOT / "data" / "cards"
+
+
+def _cards_dir() -> Path:
+    CARDS_DIR.mkdir(parents=True, exist_ok=True)
+    return CARDS_DIR
+
+
+def list_cards() -> List[Path]:
+    """列出 data/cards 目录下全部 xlsx 角色卡文件（按文件名排序）。"""
+    if not CARDS_DIR.is_dir():
+        return []
+    return sorted(
+        p for p in CARDS_DIR.iterdir()
+        if p.suffix.lower() in (".xlsx", ".xls")
+    )
+
+
+def search_cards_dir(keyword: str) -> List[Path]:
+    """在 data/cards 目录搜索匹配关键字的 xlsx 文件（忽略大小写与空格）。"""
+    kw = (keyword or "").lower().replace(" ", "")
+    return [p for p in list_cards() if kw in p.stem.lower().replace(" ", "")]
+
+
+def resolve_card_source(source: str) -> Path:
+    """解析 /card import 的来源：显式路径优先，其次为 cards 目录内文件名。
+
+    找不到抛 FileNotFoundError（带可用列表提示）。
+    """
+    raw = (source or "").strip()
+    if not raw:
+        raise FileNotFoundError("用法: /card import <xlsx路径或 data/cards 内文件名>")
+    path = Path(raw)
+    if path.is_file():
+        return path
+    # 视为 cards 目录内文件名
+    candidate = CARDS_DIR / raw
+    if candidate.is_file():
+        return candidate
+    available = "、".join(p.stem for p in list_cards()) or "（空）"
+    raise FileNotFoundError(
+        f"角色卡文件不存在: {raw}\n当前 data/cards 可用: {available}"
+    )
 
 
 # ====================================================================
