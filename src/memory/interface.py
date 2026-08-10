@@ -194,6 +194,17 @@ class Memory:
         )
         return list(hits)
 
+    # ---- 核心接口：撤销 ----
+
+    async def undo(self, world_id: str, turn_num: int) -> int:
+        """撤销到第 turn_num 轮之前：物理删除 RAG 中 >= 该轮的记忆，返回删除条数。
+
+        只清理语义侧，SQLite 物理状态由 storage.undo_turn / undo_from 负责；
+        上层应通过 src.memory.worker.rollback_world 组合调用保证双侧一致。
+        """
+        self._require_world(world_id)
+        return self._backend.delete_since(world_id, turn_num)
+
     # ---- 核心接口：主 Agent 检索 ----
 
     async def query_memory(

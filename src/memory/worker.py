@@ -177,6 +177,14 @@ class ConsolidationWorker:
             "last_results": dict(self._last_results),
         }
 
+    def get_world_lock(self, world_id: str) -> asyncio.Lock:
+        """返回该世界的异步锁（与后台固化共享），供回档等外部动作互斥使用。
+
+        同一世界内固化与回档必须用同一把锁，否则会出现「固化写入中回档删除」
+        或「回档后固化又把旧轮次写回」的竞态；本方法保证外部拿到同一注册表锁。
+        """
+        return self._locks.setdefault(world_id, asyncio.Lock())
+
     # ============================================
     # 核心处理
     # ============================================
@@ -259,3 +267,48 @@ def _log_task_error(task: asyncio.Task) -> None:
     exc = task.exception()
     if exc is not None:
         logger.error(f"ConsolidationWorker 后台固化任务异常: {exc}", exc_info=exc)
+
+
+# ============================================
+# 回档编排
+# ============================================
+
+
+async def rollback_world(
+    storage: Storage,
+    memory,
+    world_id: str,
+    turn_num: int,
+    *,
+    worker: Optional[ConsolidationWorker] = None,
+) -> int:
+    """回档到第 turn_num 轮之前：先撤销 SQLite 物理状态，再擦除 RAG 语义记忆。
+
+    顺序约定（先物理后语义）：SQLite 撤销失败抛异常中断，避免物理状态错乱；
+    Qdrant 删除幂等可重试。传入 worker 时与其共享该世界异步锁，防止后台固化
+    与回档并发；不传则免锁（单测直连）。目标轮次已被裁剪时跳过 SQLite 段、
+    仅补 RAG 清理，保证半完成态重试安全。返回 RAG 侧删除的记忆条数。
+    """
+    if worker is not None:
+        async with worker.get_world_lock(world_id):  # 状态：与后台固化互斥
+            return await _rollback_unlocked(storage, memory, world_id, turn_num)
+    return await _rollback_unlocked(storage, memory, world_id, turn_num)
+
+
+async def _rollback_unlocked(storage: Storage, memory, world_id: str, turn_num: int) -> int:
+    """无锁回档主体：SQLite 目标轮次存在才撤销物理状态，随后必清 RAG。"""
+    # 状态：目标轮次已删/已裁剪则视为已撤销，跳过物理段、仅补 RAG（幂等重试安全）
+    if storage.get_turn(world_id, turn_num) is not None:
+        undone = storage.undo_from(world_id, turn_num)
+        logger.info(
+            "SQLite 回档 world=%s 撤销轮次=%s",
+            world_id, [t["turn_num"] for t in undone],
+        )
+    else:
+        logger.info(
+            "SQLite 目标轮次已不存在，跳过物理撤销（仅清理 RAG）world=%s turn=%s",
+            world_id, turn_num,
+        )
+    deleted = await memory.undo(world_id, turn_num)
+    logger.info("RAG 回档 world=%s turn>=%s 删除=%s", world_id, turn_num, deleted)
+    return deleted

@@ -99,6 +99,22 @@ class FakeMemoryBackend:
             for score, item in scored[:top_k]
         ]
 
+    def delete_since(self, world_id: str, turn_num: int) -> int:
+        """内存桶内剔除 turn_num >= N 的记忆，返回删除条数（对齐真实后端）。
+
+        turn_num 缺失的条目保留不删，与 qdrant 范围过滤不命中缺失字段一致。
+        """
+        bucket = self._store.get(world_id, [])
+        kept = [
+            item
+            for item in bucket
+            if item["turn_num"] is None or item["turn_num"] < int(turn_num)
+        ]
+        removed = len(bucket) - len(kept)
+        if removed:
+            self._store[world_id] = kept
+        return removed
+
     def count(self, world_id: str) -> int:
         """某个世界桶内的记忆条数，供测试断言。"""
         return len(self._store.get(world_id, []))
@@ -178,6 +194,11 @@ class FakeMemory:
             top_k=max(1, int(top_k)),
             since_turn=since_turn,
         )
+
+    async def undo(self, world_id: str, turn_num: int) -> int:
+        """与 Memory.undo 同签名：转发到内存后端物理剔除 >= N 的记忆。"""
+        self._require_world(world_id)
+        return self._backend.delete_since(world_id, turn_num)
 
     async def query_memory(
         self,

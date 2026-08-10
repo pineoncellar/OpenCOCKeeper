@@ -95,18 +95,20 @@ def negate_diff(diff: dict) -> dict:
     """生成反向 diff 供撤销：数值取反，tags/inventory 的 added/removed 互换。
 
     返回结构与普通 diff 完全一致，可直接交给 apply 逻辑当作正向 diff 处理。
+    分区键容错：外部写入的 diff 可能只有部分分区（如只含 numeric_changes），
+    缺失分区按空处理，避免硬下标 KeyError 中断撤销。
     """
     reverse = empty_diff()
-    for path, delta in diff["numeric_changes"].items():
+    for path, delta in (diff.get("numeric_changes") or {}).items():
         reverse["numeric_changes"][path] = -delta
-    for entity_id, holder in diff["tags"].items():
-        for tag in holder["added"]:
+    for entity_id, holder in (diff.get("tags") or {}).items():
+        for tag in holder.get("added", []):
             record_tag_change(reverse, entity_id, tag, removed=True)
-        for tag in holder["removed"]:
+        for tag in holder.get("removed", []):
             record_tag_change(reverse, entity_id, tag, removed=False)
-    for entity_id, holder in diff["inventory"].items():
-        for item in holder["added"]:
+    for entity_id, holder in (diff.get("inventory") or {}).items():
+        for item in holder.get("added", []):
             record_inventory_change(reverse, entity_id, item, removed=True)
-        for item in holder["removed"]:
+        for item in holder.get("removed", []):
             record_inventory_change(reverse, entity_id, item, removed=False)
     return reverse

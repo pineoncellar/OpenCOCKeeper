@@ -558,6 +558,39 @@ class Storage:
             )
         return turn
 
+    def undo_from(self, world_id: str, turn_num: int) -> List[dict]:
+        """撤销到第 turn_num 轮之前：单事务内倒序反转并删除 >= 该轮的全部记录。
+
+        与 undo_turn 的单轮语义不同，本方法把「撤销 N 及之后所有轮次」作为一个
+        原子单元——先校验目标轮次存在（窗口裁剪后缺失抛 TurnNotFoundError），
+        再在同一事务内倒序应用各轮反向 diff 并批量删除记录，避免循环撤销中途
+        失败留下部分撤销的脏状态；返回被撤销轮次（按 turn_num 升序）。
+        """
+        if self.get_turn(world_id, turn_num) is None:
+            raise TurnNotFoundError(
+                f"世界 {world_id} 没有第 {turn_num} 轮记录（可能已被窗口裁剪），无法撤销到此轮之前"
+            )
+        with self._db.read() as conn:
+            rows = conn.execute(
+                "SELECT * FROM recent_turns WHERE world_id = ? AND turn_num >= ? "
+                "ORDER BY turn_num ASC",
+                (world_id, int(turn_num)),
+            ).fetchall()
+        turns = [_decode_turn(r) for r in rows]
+        if not turns:
+            return []  # 状态：目标轮次存在但无 >= 记录（防御），无撤销动作
+        # 状态：倒序撤销——从最新轮向目标轮逐轮取反，保证状态依赖顺序正确
+        ordered = sorted(turns, key=lambda t: t["turn_num"], reverse=True)
+        with self._db.transaction() as conn:
+            for t in ordered:
+                diff = t["state_diff"] or {}
+                self._apply_diff(conn, world_id, negate_diff(diff))  # 状态：倒序反转
+            conn.execute(  # 状态：批量删除已撤销轮次
+                "DELETE FROM recent_turns WHERE world_id = ? AND turn_num >= ?",
+                (world_id, int(turn_num)),
+            )
+        return turns
+
     def _apply_diff(self, conn: sqlite3.Connection, world_id: str, diff: dict) -> None:
         # 数值分区：路径形如 "player_01.hp"，拆分实体与字段后增量更新
         for path, delta in diff["numeric_changes"].items():

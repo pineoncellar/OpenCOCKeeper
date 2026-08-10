@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Protocol
 
 from ..core.config import PROJECT_ROOT, ConfigError, Settings, get_settings
+from ..core.exceptions import MemoryOperationError
 from ..core.log import get_logger
 from .interface import MemoryHit
 
@@ -49,6 +50,12 @@ class MemoryBackend(Protocol):
         top_k: int,
         since_turn: Optional[int] = None,
     ) -> List[MemoryHit]: ...
+
+    def delete_since(
+        self,
+        world_id: str,
+        turn_num: int,
+    ) -> int: ...
 
     async def close(self) -> None: ...
 
@@ -269,6 +276,53 @@ class Mem0Memory:
                 )
             )
         return hits
+
+    # ---- 协议实现：撤销 ----
+
+    def delete_since(self, world_id: str, turn_num: int) -> int:
+        """物理删除该世界 turn_num >= N 的记忆，返回预估删除条数。
+
+        复用 mem0 内部已建立的 qdrant client（vector_store.client），
+        绝不二次打开本地 path——同进程双重打开会触发文件锁冲突；
+        count 仅用于日志/断言预估，与 delete 之间的并发写入会使两者略偏离。
+        """
+        store = self._mem0().vector_store  # 状态：复用既有连接，杜绝锁冲突
+        from qdrant_client import models  # 惰性导入，避免模块级强依赖
+
+        selector = models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="user_id", match=models.MatchValue(value=world_id)
+                    ),
+                    models.FieldCondition(
+                        key="turn_num", range=models.Range(gte=int(turn_num))
+                    ),
+                ]
+            )
+        )
+        try:
+            counted = store.client.count(
+                collection_name=store.collection_name,
+                count_filter=selector.filter,
+            ).count
+            store.client.delete(
+                collection_name=store.collection_name,
+                points_selector=selector,
+            )
+            logger.info(
+                "Qdrant 回档删除 world=%s turn>=%s count≈%s",
+                world_id, turn_num, counted,
+            )
+            return int(counted)
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                "Qdrant 回档删除失败(world=%s turn>=%s): %s",
+                world_id, turn_num, e,
+            )
+            raise MemoryOperationError(
+                f"Qdrant 回档删除失败 world={world_id} turn>={turn_num}: {e}"
+            ) from e
 
     # ---- 协议实现：释放 ----
 
