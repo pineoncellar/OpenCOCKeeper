@@ -6,7 +6,8 @@
              模型调用 present_directive 交卷（或直接文本降级）后，state_changes 由
              runner.collected_diffs 程序合并（不信任模型重报，杜绝幻觉扣血/扣 Tag），
              最后统一走 apply_turn_change 落库（空 diff 也写轮，保证近程对话连续）；
-             tier 默认 smart，temperature 可覆盖配置值（如 0.3~0.4 提升决策稳定性）
+             默认模型档位取 config.context.director（缺省 smart），temperature 不设则
+             不覆盖模型档位默认（可用 0.3~0.4 提升决策稳定性）
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable, Optional
 
 from src.agent.assembler import assemble
+from src.core.config import get_settings
 from src.agent.directive import (
     NarrativeDirective,
     PRESENT_DIRECTIVE_NAME,
@@ -26,6 +28,9 @@ from src.tools.commit import apply_turn_change
 
 # llm 可调用签名：await llm(tier, messages, tools=..., temperature=...)
 LLMCallable = Callable[..., Awaitable[Any]]
+
+# 默认裁决模型档位（可被 config.context.director / 构造参数覆盖）
+DEFAULT_TIER = "smart"
 
 
 def _accept_directive(**kwargs: Any) -> dict:
@@ -46,15 +51,21 @@ class Director:
         *,
         memory: Optional[Any] = None,
         llm: Optional[LLMCallable] = None,
-        tier: str = "smart",
+        tier: Optional[str] = None,
         temperature: Optional[float] = None,
         rng: Optional[object] = None,
     ) -> None:
         self._storage = storage
         self._memory = memory
         self._llm = llm
-        self._tier = tier
-        self._temperature = temperature
+        settings = get_settings()
+        # 状态：消费方自读默认档位（对齐 Narrator），显式传入优先
+        self._tier = tier or str(settings.get("context.director.llm_tier", DEFAULT_TIER))
+        self._temperature = (
+            temperature
+            if temperature is not None
+            else settings.get("context.director.temperature", None)
+        )
         self._rng = rng
 
     async def run_turn(

@@ -81,10 +81,24 @@ memory:
 context:
   assembler:
     recent_turns: 10                # 近程对话注入轮数
+  # 主 Agent（Director）：裁决模型档位与温度覆盖。
+  # smart 档默认 temperature 0.8 偏高，此处压低至 0.3~0.4 提升裁决稳定性
+  # （见 进度追踪.md 已知缺口）
+  director:
+    llm_tier: "smart"              # 裁决档位
+    temperature: 0.4                # 裁决温度覆盖（None 则用模型档位默认）
   # 润色 Agent（Narrator）：演播模型档位与温度
   narrator:
     llm_tier: "standard"            # 文学表达优先档（非裁决档）
     temperature: 0.7                # 略高于裁决档，保留演播自由度
+
+# ------------------------------------------------------------
+# 适配器层
+# 仅承载消息源接入自身配置（preflight 自检开关），模型档位归 context 层
+# ------------------------------------------------------------
+adapter:
+  preflight: true                  # 启动时执行 RAG 前置自检，FAIL 即中止
+  check_embedding: true            # 自检是否探测 embedding 端点（离线开发可设 false）
 
 # ------------------------------------------------------------
 # 日志
