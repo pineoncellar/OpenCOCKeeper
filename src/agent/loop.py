@@ -103,8 +103,49 @@ class ToolRunner:
 
 
 # ====================================================================
-# 默认工具实现（挂接 4 个原子工具门面）
+# 默认工具实现（挂接原子工具门面）
 # ====================================================================
+
+
+def _run_search_tool(**kwargs: Any) -> dict:
+    """search_module 工具实现：按 world_id 解析绑定模组，返回原文命中切片。
+
+    模块级公共函数，主 Agent 与开场 Agent（Opening Agent）共用同一检索实现。
+    """
+    from src.retrieval import search_module as _search_module
+
+    hits = _search_module(
+        kwargs.get("query") or "",
+        world_id=kwargs["world_id"],
+        top_k=int(kwargs.get("top_k") or 2),
+    )
+    return {
+        "ok": True,
+        "hits": [
+            {
+                "title": h.section.title,
+                "source_location": h.section.source_location,
+                "content": h.section.content,
+                "score": h.score,
+            }
+            for h in hits
+        ],
+    }
+
+
+def _run_pc_background_tool(storage, **kwargs: Any) -> dict:
+    """get_pc_background 工具实现：按需查 PC 入模组前背景（只读，无 state_diff）。
+
+    storage 为存储门面（唯一外部依赖），主 Agent 与开场 Agent 共用。
+    """
+    from src.tools.get_pc_background import get_pc_background as _bg
+
+    result = _bg(storage, kwargs)
+    return {
+        "ok": result["ok"],
+        "backgrounds": result["backgrounds"],
+        "summary": result["summary_for_agent"],
+    }
 
 
 def build_default_runner(
@@ -116,32 +157,10 @@ def build_default_runner(
     rng: 测试注入的确定骰序（透传给 check_and_update_stats）。
     工具均为纯计算不写库，state_diff 收集在 runner.collected_diffs。
     """
-    from src.retrieval import search_module as _search_module
     from src.tools.check_and_update_stats import check_and_update_stats as _stats
-    from src.tools.get_pc_background import get_pc_background as _bg
     from src.tools.manage_tags import manage_tags as _tags
 
     runner = ToolRunner()
-
-    def _run_search(**kwargs: Any) -> dict:
-        """search_module：按 world_id 解析绑定模组，返回原文命中切片。"""
-        hits = _search_module(
-            kwargs.get("query") or "",
-            world_id=kwargs["world_id"],
-            top_k=int(kwargs.get("top_k") or 2),
-        )
-        return {
-            "ok": True,
-            "hits": [
-                {
-                    "title": h.section.title,
-                    "source_location": h.section.source_location,
-                    "content": h.section.content,
-                    "score": h.score,
-                }
-                for h in hits
-            ],
-        }
 
     async def _run_query_memory(**kwargs: Any) -> dict:
         """query_memory：多变体语义召回，返回记忆命中文本。"""
@@ -188,20 +207,11 @@ def build_default_runner(
             "state_diff": result["state_diff"],
         }
 
-    def _run_pc_background(**kwargs: Any) -> dict:
-        """get_pc_background：按需查 PC 入模组前背景（只读，无 state_diff）。"""
-        result = _bg(storage, kwargs)
-        return {
-            "ok": result["ok"],
-            "backgrounds": result["backgrounds"],
-            "summary": result["summary_for_agent"],
-        }
-
-    runner.register("search_module", _run_search)
+    runner.register("search_module", _run_search_tool)
     runner.register("query_memory", _run_query_memory)
     runner.register("check_and_update_stats", _run_stats)
     runner.register("manage_tags", _run_tags)
-    runner.register("get_pc_background", _run_pc_background)
+    runner.register("get_pc_background", lambda **kw: _run_pc_background_tool(storage, **kw))
     return runner
 
 

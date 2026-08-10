@@ -200,6 +200,31 @@ class FakeMemory:
         self._require_world(world_id)
         return self._backend.delete_since(world_id, turn_num)
 
+    async def seed_events(
+        self,
+        world_id: str,
+        events: List[str],
+        *,
+        turn_num: int = 0,
+        location: Optional[str] = None,
+    ) -> int:
+        """与 Memory.seed_events 同签名：把开场前情事件直写内存后端（不调 LLM）。"""
+        self._require_world(world_id)
+        items = [
+            {"text": str(e).strip(), "turn": int(turn_num)}
+            for e in events
+            if str(e).strip()
+        ]
+        if not items:
+            return 0
+        self._backend.add_events(
+            items,
+            world_id=world_id,
+            batch_turn_nums=[int(turn_num)] * len(items),
+            location=location,
+        )
+        return len(items)
+
     async def query_memory(
         self,
         queries,

@@ -80,3 +80,12 @@ class NarratorError(OpenCOCKeeperError):
     轮次物理状态已在 Director.run_turn 落库，Narrator 失败不影响回档；
     上层管线可捕获后以导演手记降级对外输出，保证玩家至少拿到裁决内容。
     """
+
+
+class OpeningError(OpenCOCKeeperError):
+    """开场初始化失败：前置条件缺失（未绑模组 / 无有效 PC）、Opening Agent 决策失败
+    或 Turn 0 演播/落库失败。
+
+    无静默降级——报错即停，修复后重试；副作用后置保证 LLM 失败时零残留、可干净重试，
+    不遗留半开场状态（Turn 0 半写 / 记忆重复植入）。
+    """

@@ -44,6 +44,8 @@ def get_pc_background(storage, raw_input: dict) -> dict:
             {
                 "entity_id": e["id"],
                 "name": e["name"],
+                # 状态：职业随背景一并返回，开场 Agent 据此做 PC 身份与切入场景对齐
+                "occupation": (e.get("occupation") or "").strip() or None,
                 "background": text or None,  # 无背景返回 None，模型可据 name 判断
             }
         )

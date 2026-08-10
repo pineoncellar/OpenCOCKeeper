@@ -411,6 +411,12 @@ async def test_card_import_and_world_start_with_pc(storage, tmp_path, monkeypatc
     pcs = storage.get_entities(adapter._world_id, entity_type="PC")
     assert len(pcs) == 1
     assert pcs[0]["name"].startswith("费莉西蒂")
+    # 状态：模组 + PC 双要素齐备，自动顺承 Turn 0 开场演播（三件套落库）
+    assert out.type == MessageType.NARRATIVE
+    turn0 = storage.get_turn(adapter._world_id, 0)
+    assert turn0 is not None
+    assert turn0["context_data"]["assistant"]
+    assert turn0["solidified"] == 1  # 状态：已标记固化，后台 Worker 不会二次提炼开场
 
 
 async def test_card_use_copies_to_current_world(storage, world_id, tmp_path, monkeypatch, fake_llm):

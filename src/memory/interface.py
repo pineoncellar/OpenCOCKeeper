@@ -205,6 +205,38 @@ class Memory:
         self._require_world(world_id)
         return self._backend.delete_since(world_id, turn_num)
 
+    # ---- 核心接口：开场前情植入 ----
+
+    async def seed_events(
+        self,
+        world_id: str,
+        events: List[str],
+        *,
+        turn_num: int = 0,
+        location: Optional[str] = None,
+    ) -> int:
+        """把开场前情提要等预置事件直接写入 RAG（不经过 LLM 提炼），返回写入条数。
+
+        供 Opening Agent 把 Turn 0 前情植入记忆（metadata 绑 turn_num），
+        使开场设定对后续 RAG 检索立即可见；不写 global_recap、不标记轮次固化——
+        由调用方负责 mark_turns_solidified，避免后台固化 Worker 二次提炼产生重复记忆。
+        """
+        self._require_world(world_id)
+        items = [
+            {"text": str(e).strip(), "turn": int(turn_num)}
+            for e in events
+            if str(e).strip()
+        ]
+        if not items:
+            return 0
+        self._backend.add_events(
+            items,
+            world_id=world_id,
+            batch_turn_nums=[int(turn_num)] * len(items),
+            location=location,
+        )
+        return len(items)
+
     # ---- 核心接口：主 Agent 检索 ----
 
     async def query_memory(

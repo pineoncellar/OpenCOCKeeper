@@ -226,6 +226,23 @@ class AbstractAdapter(ABC):
             lines = [f"世界已创建并切换: {world_id}（模组: {module_name}）"]
             if bound:
                 lines.append("已绑定 PC: " + "、".join(bound))
+                # 状态：模组 + PC 双要素齐备，自动顺承 Turn 0 开场演播
+                # 无静默降级——开场失败（前置缺失/LLM 异常）显式拦截提示，可修复后重试
+                try:
+                    from src.agent.opening import run_opening_narration
+                    from src.core.exceptions import OpeningError
+
+                    opened = await run_opening_narration(
+                        self.storage, world_id, memory=self.memory, llm=self.llm,
+                    )
+                    return OutboundMessage.narrative(
+                        "\n".join(lines + ["", opened.narration]),
+                        session_id=sid, world_id=world_id,
+                    )
+                except OpeningError as e:
+                    lines.append(f"（开场初始化被拦截: {e}）")
+                    lines.append("请修复后重试 /world start，或直接输入行动文本继续。")
+                    return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
             lines.append("直接输入行动文本开始探索。")
             return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 

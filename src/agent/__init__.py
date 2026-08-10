@@ -30,6 +30,15 @@ from src.agent.narrator import (
     build_narrator_messages,
 )
 from src.agent.pipeline import NarratedTurn, run_narrated_turn
+from src.agent.opening import (
+    NarratedOpening,
+    OpeningSetupResult,
+    PRESENT_OPENING_NAME,
+    PRESENT_OPENING_SCHEMA,
+    build_opening_runner,
+    run_opening_narration,
+    run_opening_setup,
+)
 
 __all__ = [
     "build_tool_schemas",
@@ -52,4 +61,11 @@ __all__ = [
     "build_narrator_messages",
     "NarratedTurn",
     "run_narrated_turn",
+    "OpeningSetupResult",
+    "NarratedOpening",
+    "PRESENT_OPENING_NAME",
+    "PRESENT_OPENING_SCHEMA",
+    "build_opening_runner",
+    "run_opening_setup",
+    "run_opening_narration",
 ]

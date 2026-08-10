@@ -91,6 +91,10 @@ context:
   narrator:
     llm_tier: "standard"            # 文学表达优先档（非裁决档）
     temperature: 0.7                # 略高于裁决档，保留演播自由度
+  # 开场初始化 Agent（Opening Agent）：模组大纲提炼 + 开场裁决模型档位
+  opening:
+    llm_tier: "smart"              # 开场裁决档（对齐 Director）
+    temperature: 0.4                # 开场裁决温度覆盖（None 则用模型档位默认）
 
 # ------------------------------------------------------------
 # 适配器层
