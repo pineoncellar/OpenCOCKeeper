@@ -12,12 +12,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from src.agent.directive import NarrativeDirective
 from src.agent.director import Director
 from src.agent.narrator import Narrator
 from src.core.config import get_settings
+from src.core.log import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -41,14 +44,19 @@ async def run_narrated_turn(
     turn_num: Optional[int] = None,
     recent_limit: Optional[int] = None,
     rng: Optional[object] = None,
+    on_turn_committed: Optional[Callable[[str, int], Awaitable[None]]] = None,
 ) -> NarratedTurn:
     """执行一轮完整管线：裁决 → 演播 → 落库，返回 NarratedTurn。
 
     director / narrator 可注入（测试用 fake 或定制）；缺省分别新建；
     llm 为两者共用的可调用对象（对齐 call_llm 签名，不传则各自动态解析）；
     recent_limit 为近程历史注入轮数，缺省取 config.context.assembler.recent_turns；
+    on_turn_committed 为落库完成后的触发钩子（如通知后台固化 Worker），
+    签名 (world_id, turn_num)，应尽快返回——长耗时逻辑请自行 create_task；
+    钩子失败仅记日志，不影响本轮交付。
     流程：先 Director.run_turn 落库契约，再读近程历史（不含本轮），
-    Narrator 翻译后把叙事覆盖该轮 assistant 落库（手记存 directive 键）。
+    Narrator 翻译后把叙事覆盖该轮 assistant 落库（手记存 directive 键），
+    最后触发 on_turn_committed 钩子。
     """
     if director is None:
         director = Director(
@@ -75,4 +83,14 @@ async def run_narrated_turn(
         assistant=narration,
         directive=directive.narrative_directive,
     )
+    # 状态：落库完成后触发上层钩子（如通知固化 Worker），失败不影响本轮交付
+    if on_turn_committed is not None:
+        try:
+            await on_turn_committed(world_id, directive.turn_num)
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                f"on_turn_committed 钩子失败 world={world_id} "
+                f"turn={directive.turn_num}: {e}",
+                exc_info=True,
+            )
     return NarratedTurn(directive=directive, narration=narration)

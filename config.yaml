@@ -55,8 +55,11 @@ module:
 # ------------------------------------------------------------
 memory:
   recent_turns_window: 20            # 近程上下文滚动轮数
-  solidify_token_threshold: 2000     # 达到该 token 阈值触发后台固化
+  solidify_token_threshold: 2000     # 达到该 token 阈值触发后台固化（字符近似，可选触发）
   solidify_poll_interval: 60         # 固化 Worker 轮询间隔（秒）
+  solidify_min_turns: 5              # 未固化轮数阈值：达标即触发固化
+  solidify_min_interval: 300         # 最小固化间隔（秒）：轮数不足但久未固化时兜底触发
+  solidify_batch_limit: 50           # 单次固化最大轮数（防超长世界一次塞爆 LLM 上下文）
   # RAG 语义记忆后端配置（配合 src/memory/ 模块使用，见 docs/新rag架构.md）
   rag:
     llm_tier: "standard"            # 事件提炼 / 宏观 recap 用的模型档位

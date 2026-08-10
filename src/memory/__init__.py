@@ -17,6 +17,7 @@ from src.memory.backend import Mem0Memory, MemoryBackend
 from src.memory.fake import FakeMemory, FakeMemoryBackend
 from src.memory.interface import ConsolidateResult, Memory, MemoryHit
 from src.memory.preflight import PreflightCheck, PreflightReport, preflight
+from src.memory.worker import ConsolidationWorker
 
 __all__ = [
     "Memory",
@@ -29,4 +30,5 @@ __all__ = [
     "preflight",
     "PreflightCheck",
     "PreflightReport",
+    "ConsolidationWorker",
 ]

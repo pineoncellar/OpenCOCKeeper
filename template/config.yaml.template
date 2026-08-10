@@ -56,6 +56,9 @@ memory:
   recent_turns_window: 20
   solidify_token_threshold: 2000
   solidify_poll_interval: 60
+  solidify_min_turns: 5
+  solidify_min_interval: 300
+  solidify_batch_limit: 50
 
 # ------------------------------------------------------------
 # 日志
