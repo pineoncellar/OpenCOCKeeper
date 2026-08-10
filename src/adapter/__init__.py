@@ -9,7 +9,7 @@
 from src.adapter.protocol import InboundMessage, MessageType, OutboundMessage
 from src.adapter.base import AbstractAdapter
 from src.adapter.cli import CliAdapter
-from src.adapter.runtime import run_cli, main
+from src.adapter.runtime import create_adapter, run_cli, main
 
 __all__ = [
     "InboundMessage",
@@ -17,6 +17,7 @@ __all__ = [
     "OutboundMessage",
     "AbstractAdapter",
     "CliAdapter",
+    "create_adapter",
     "run_cli",
     "main",
 ]

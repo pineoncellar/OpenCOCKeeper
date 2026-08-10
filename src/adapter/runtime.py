@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 """
 @File     :   runtime.py
-@Desc     :   App 运行时编排 — 前置自检 / 后台固化 Worker 生命周期 / CLI 适配器挂接
-@Note     :   run_cli() 为 CLI 入口：preflight FAIL 即中止（可配置跳过），随后构建
-             Storage + Memory + ConsolidationWorker 并挂后台，再跑 CliAdapter 主循环；
-             退出时先由 adapter 清理 stop worker，此处兜底 cancel 后台任务
+@Desc     :   App 运行时编排 — 前置自检 / 后台固化 Worker 生命周期 / 适配器挂接
+@Note     :   run_cli() 为进程入口：preflight FAIL 即中止（可配置跳过），随后构建
+             Storage + Memory + ConsolidationWorker 并挂后台，再按 config.adapter.active
+             分派适配器（create_adapter 工厂）跑主循环；退出时先由 adapter 清理 stop
+             worker，此处兜底 cancel 后台任务
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+from typing import Any, Optional
 
 from src.core.config import get_settings
 from src.core.log import get_logger
@@ -19,9 +20,39 @@ from src.memory.preflight import PreflightReport, preflight
 from src.memory.worker import ConsolidationWorker
 from src.storage.storage import Storage
 
-from .cli import CliAdapter
-
 logger = get_logger(__name__)
+
+
+# ============================================
+# 适配器工厂
+# ============================================  
+
+
+def create_adapter(
+    storage: Any,
+    memory: Any,
+    worker: Any,
+    *,
+    llm: Any = None,
+    active: Optional[str] = None,
+) -> Any:
+    """按适配器类型分派实例；active 缺省取 config.adapter.active（当前仅 cli）。
+
+    未来新增 OneBot / Web 适配器时，在此注册类型名 -> 适配器类的映射即可，
+    上层 run_cli 无需感知具体类。
+    """
+    active = (active or str(get_settings().get("adapter.active", "cli"))).lower()
+    if active == "cli":
+        from .cli import CliAdapter
+
+        session_id = str(
+            get_settings().get("adapter.cli.session_id", "cli-default")
+        )
+        return CliAdapter(
+            storage=storage, memory=memory, worker=worker,
+            llm=llm, session_id=session_id,
+        )
+    raise ValueError(f"未知适配器类型 '{active}'，当前支持: cli")
 
 
 # ============================================
@@ -51,7 +82,7 @@ async def run_cli(*, storage: Optional[Storage] = None, memory=None, worker=None
     worker = worker or ConsolidationWorker(memory=memory, storage=storage)
 
     worker_task = asyncio.create_task(worker.start(), name="consolidation-worker")
-    adapter = CliAdapter(storage=storage, memory=memory, worker=worker)
+    adapter = create_adapter(storage=storage, memory=memory, worker=worker)
     try:
         await adapter.run()  # 状态：adapter._cleanup 已优雅 stop worker
     finally:

@@ -302,3 +302,41 @@ async def test_worker_hook_binding(storage, world_id, fake_llm):
                 await task
             except asyncio.CancelledError:
                 pass
+
+
+# ============================================
+# 适配器工厂（create_adapter）
+# ============================================
+
+
+def _patch_adapter_settings(monkeypatch, data):
+    """把 runtime 的 get_settings 替换为返回固定 adapter 段的假配置。"""
+    from src.adapter import runtime as runtime_mod
+
+    class _FakeSettings:
+        def get(self, dotted_path, default=None):
+            return data.get(dotted_path, default)
+
+    monkeypatch.setattr(runtime_mod, "get_settings", lambda: _FakeSettings())
+
+
+def test_create_adapter_cli(monkeypatch):
+    """config.adapter.active=cli 时工厂分派 CliAdapter，并读取 cli.session_id。"""
+    _patch_adapter_settings(
+        monkeypatch,
+        {"adapter.active": "cli", "adapter.cli.session_id": "s-test"},
+    )
+    from src.adapter.runtime import create_adapter
+
+    adapter = create_adapter(storage=None, memory=None, worker=None)
+    assert isinstance(adapter, CliAdapter)
+    assert adapter.session_id == "s-test"
+
+
+def test_create_adapter_unknown(monkeypatch):
+    """config.adapter.active 指向未注册类型时工厂抛 ValueError。"""
+    _patch_adapter_settings(monkeypatch, {"adapter.active": "onebot"})
+    from src.adapter.runtime import create_adapter
+
+    with pytest.raises(ValueError):
+        create_adapter(storage=None, memory=None, worker=None)
