@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import pytest
 
-from src.agent.assembler import ContextBundle, DEFAULT_SYSTEM, assemble
+from src.agent.assembler import (
+    ContextBundle,
+    DEFAULT_SYSTEM,
+    assemble,
+    render_background,
+)
 from src.core.exceptions import WorldNotFoundError
 
 
@@ -61,6 +66,55 @@ def test_assemble_empty_world(storage, world_id):
     assert "（暂无前情提要）" in bundle.snapshot
     assert "（暂无历史对话）" in bundle.recent
     assert bundle.pc_count == 0 and bundle.recent_count == 0
+
+
+def test_assemble_background_not_injected(storage, world_id):
+    """背景不再随快照注入：即使 PC 有完整背景，快照【调查员状态】也不含【角色背景】。
+    背景为静态人物底稿，改由 get_pc_background 工具按需查询，省 token。
+    """
+    storage.update_world(world_id, player_ids=["pc_01"])
+    storage.create_entity(
+        world_id, "pc_01", "PC", "费莉西蒂",
+        background={
+            "appearance_desc": "略卷的蓝褐色长发，总是绑成高马尾",
+            "belief": "真正的力量，不在于驱散阴影",
+            "full_backstory": "费莉西蒂·利丝的少女时代……",
+        },
+    )
+    bundle = assemble(storage, world_id)
+    # 快照仍渲染物理真相（调查员状态），但不含背景小节与背景字段文本
+    assert "费莉西蒂" in bundle.snapshot
+    assert "【角色背景】" not in bundle.snapshot
+    assert "形象描述" not in bundle.snapshot
+    assert "真正的力量" not in bundle.snapshot
+
+
+def test_render_background_interface():
+    """render_background 接口：独立拼装长文段，空/无/占位值均返回空串。"""
+    assert render_background(None) == ""
+    assert render_background({}) == ""
+    text = render_background(
+        {"appearance_desc": "蓝发", "belief": "信念", "phobias_manias": "无"}
+    )
+    assert text == "【形象描述】蓝发\n【思想与信念】信念"
+
+
+def test_background_semantics_in_query_memory_tool(storage, world_id):
+    """背景语义特别提示已从基础提示词卸载，改为并入 query_memory 工具说明（不增系统负担）。"""
+    from src.agent.schemas import build_tool_schemas
+
+    bundle = assemble(storage, world_id)
+    # 基础提示词不再背负背景语义（卸载成功）
+    assert "进入模组剧情之前" not in bundle.system
+    # 语义作为工具说明提供给 LLM：query_memory 的 description 含背景边界
+    qm = next(
+        s for s in build_tool_schemas()
+        if s["function"]["name"] == "query_memory"
+    )
+    desc = qm["function"]["description"]
+    assert "进入模组剧情之前" in desc
+    assert "【角色背景】" in desc
+    assert "人物底稿" in desc
 
 
 def test_assemble_recent_limit(storage, world_id):

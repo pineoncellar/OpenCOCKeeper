@@ -29,16 +29,16 @@ from src.agent.schemas import tool_names
 
 
 def test_main_agent_schemas_includes_present_directive():
-    """主 Agent 工具清单：4 原子工具 + present_directive 收尾工具。"""
+    """主 Agent 工具清单：5 原子工具 + present_directive 收尾工具。"""
     schemas = build_main_agent_schemas()
     names = [s["function"]["name"] for s in schemas]
-    assert len(schemas) == 5
+    assert len(schemas) == 6
     assert names[-1] == "present_directive"
 
 
-def test_build_tool_schemas_has_four_tools():
+def test_build_tool_schemas_has_five_tools():
     schemas = build_tool_schemas()
-    assert len(schemas) == 4
+    assert len(schemas) == 5
     names = {s["function"]["name"] for s in schemas}
     assert names == set(tool_names())
 

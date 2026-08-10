@@ -120,6 +120,31 @@ def test_tags_add_remove(storage, world_id):
     assert storage.get_entity(world_id, "player_01")["tags"] == []
 
 
+def test_entity_background_crud(storage, world_id):
+    """背景列（迁移 4）存取：create 携带背景 JSON，get 还原 dict，update 可整体替换。"""
+    bg = {
+        "appearance_desc": "略卷的蓝褐色长发，绑成高马尾",
+        "belief": "真正的力量，不在于驱散自身的阴影",
+        "significant_person": "失踪的马瑟斯先生",
+        "significant_place": "马瑟斯的事务所",
+        "cherished_possession": "唯一一张和塞恩的合影",
+        "trait": "言语温和，保持医者的距离",
+        "injury_scar": "无",
+        "phobias_manias": "无",
+        "full_backstory": "费莉西蒂·利丝的少女时代……",
+    }
+    storage.create_entity(world_id, "player_01", "PC", "费莉西蒂", background=bg)
+    assert storage.get_entity(world_id, "player_01")["background"] == bg
+    storage.update_entity(world_id, "player_01", background={"belief": "新信念"})
+    assert storage.get_entity(world_id, "player_01")["background"] == {"belief": "新信念"}
+
+
+def test_entity_background_defaults_empty(storage, world_id):
+    """不传 background 时默认空 dict（迁移 4 默认 '{}'）。"""
+    storage.create_entity(world_id, "player_01", "PC", "费莉西蒂")
+    assert storage.get_entity(world_id, "player_01")["background"] == {}
+
+
 # ====================================================================
 # 轮次 / 回档
 # ====================================================================
