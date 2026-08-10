@@ -51,6 +51,8 @@ class ToolRunner:
         self._funcs: Dict[str, ToolFunc] = {}
         # 本轮已执行工具产出的 state_diff 列表（顺序与执行一致）
         self.collected_diffs: List[dict] = []
+        # 本轮已执行检定的程序权威结果（掷骰值/成功等级等），供 Narrator 演播
+        self.collected_checks: List[dict] = []
 
     def register(self, name: str, fn: ToolFunc) -> None:
         """注册工具：fn 接收 (模型参数..., **inject)，返回 dict。"""
@@ -63,6 +65,10 @@ class ToolRunner:
     def reset_diffs(self) -> None:
         """清空本轮收集的 state_diff（新一轮决策前调用）。"""
         self.collected_diffs.clear()
+
+    def reset_checks(self) -> None:
+        """清空本轮收集的检定结果（新一轮决策前调用）。"""
+        self.collected_checks.clear()
 
     async def execute(self, name: str, arguments: dict, **inject) -> dict:
         """执行指定工具并返回可见结果；未知工具/执行异常返回错误镜像而非抛出。
@@ -88,6 +94,11 @@ class ToolRunner:
         diff = result.pop("state_diff", None)
         if diff:
             self.collected_diffs.append(diff)
+        # 状态：额外保留检定结果权威副本（仍回填模型用于写手记，但 Narrator
+        # 以本副本为准，杜绝模型改写/遗漏骰值与成功等级）
+        check = result.get("check")
+        if check:
+            self.collected_checks.append(check)
         return result
 
 
@@ -152,10 +163,14 @@ def build_default_runner(
     def _run_stats(**kwargs: Any) -> dict:
         """check_and_update_stats：三段式检定/数值/背包，回填摘要，diff 由 runner 抽走。"""
         result = _stats(storage, kwargs, rng=rng)
+        check = result["check"]
+        if check is not None:
+            # 状态：检定结果补上实体标识，Narrator 可区分"谁的检定"
+            check = {**check, "entity_id": kwargs.get("entity_id")}
         return {
             "ok": result["ok"],
             "summary": result["summary_for_agent"],
-            "check": result["check"],
+            "check": check,
             "stats_changed": result["stats_changed"],
             "inventory_changed": result["inventory_changed"],
             "rule_hints": result["rule_hints"],

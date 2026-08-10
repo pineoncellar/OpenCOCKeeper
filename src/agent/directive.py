@@ -4,13 +4,14 @@
 @Desc     :   《叙事决策大纲》契约模块：present_directive 收尾工具 schema + NarrativeDirective 产物
 @Note     :   混合契约——state_changes 由程序从工具执行 diff 合并（模型不可见，杜绝幻觉重报）；
              narrative_directive 为 Markdown 自由文本，程序不解析子字段，原样透传 Narrator；
+             checks 为程序从工具执行保留的检定结果权威副本（掷骰值/成功等级等），透传 Narrator；
              契约结构见 docs/主agent叙事决策大纲.md
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 # 收尾工具名：主 Agent 信息完备后调用即交卷，闭环据此提前收敛
 PRESENT_DIRECTIVE_NAME = "present_directive"
@@ -47,6 +48,7 @@ class NarrativeDirective:
     narrative_directive: str                  # Markdown 导演手记（程序不解析）
     turn_num: int                             # 本轮轮次号
     converged: bool = True                    # 是否经 present_directive 正常交卷（False=文本降级）
+    checks: List[dict] = field(default_factory=list)  # 本轮检定结果权威副本（掷骰值/成功等级，透传 Narrator）
 
 
 def extract_narrative_directive(

@@ -80,6 +80,7 @@ class Director:
         # 状态：注册收尾工具兜底 handler（stop 收敛失效时的无害落点）
         runner.register(PRESENT_DIRECTIVE_NAME, _accept_directive)
         runner.reset_diffs()
+        runner.reset_checks()
         result = await run_tool_loop(
             self._llm,
             self._tier,
@@ -115,11 +116,16 @@ class Director:
             world_id,
             turn,
             diffs=runner.collected_diffs,
-            context_data={"user": action, "assistant": narrative},
+            context_data={
+                "user": action,
+                "assistant": narrative,
+                "checks": runner.collected_checks,
+            },
         )
         return NarrativeDirective(
             state_changes=record["state_diff"],
             narrative_directive=narrative,
             turn_num=turn,
             converged=converged,
+            checks=runner.collected_checks,
         )
