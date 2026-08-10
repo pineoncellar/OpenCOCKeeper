@@ -133,7 +133,8 @@ def test_build_narrator_messages_structure():
     )
     assert messages[0]["role"] == "system"
     assert "绝对忠实大纲" in messages[0]["content"]
-    assert "零元语言" in messages[0]["content"]
+    assert "检定结果透明化" in messages[0]["content"]
+    assert "检定名称：掷骰值/阈值 成功等级标签" in messages[0]["content"]
     user = messages[1]["content"]
     assert "【叙事决策大纲】" in user
     assert "【检定结果权威区】" in user
