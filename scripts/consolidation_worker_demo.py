@@ -145,6 +145,18 @@ async def main(args) -> int:
                 ok(f"  [{h.score:.2f}] {h.text}")
         else:
             warn("未召回任何记忆（真实模式可调整 query 表述；--fake 模式按关键词打分）")
+
+        section("物理回档（rollback_world，先物理后语义）")
+        from src.memory import rollback_world
+        deleted = await rollback_world(storage, memory, world_id, 2, worker=worker)
+        ok(f"RAG 删除记忆条数: {deleted}")
+        remaining = [t["turn_num"] for t in storage.get_recent_turns(world_id, limit=50)]
+        step(f"SQLite 剩余轮次: {remaining}（回档到第 2 轮之前，应只含 turn 1）")
+        hits_after = await memory.search("旧钥匙", world_id, top_k=3)
+        if hits_after:
+            ok(f"回档后 turn>=2 记忆已清、turn 1 的旧钥匙记忆保留（召回 {len(hits_after)} 条）")
+        else:
+            warn("回档后未召回任何记忆（--fake 模式可调整 query）")
     finally:
         # 状态：无论成功或失败都清理测试数据，避免残留测试世界；
         # 先关 memory 后端释放 qdrant 目录锁，再独立打开 qdrant 清理 RAG，
