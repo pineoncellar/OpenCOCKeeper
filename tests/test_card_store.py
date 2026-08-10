@@ -95,3 +95,12 @@ def test_copy_seed_assigns_unique_ids(storage, world_id, _seed_tmp):
     assert storage.get_entity(world_id, eid2) is not None
     pids = storage.get_world(world_id)["player_ids"]
     assert eid1 in pids and eid2 in pids
+
+
+def test_copy_seed_keeps_occupation(storage, world_id, _seed_tmp):
+    """拷贝到世界保留职业字段。"""
+    entity = _sample_entity()
+    entity["occupation"] = "医生"
+    seed_id = card_store.save_seed(entity, {"name": "费莉西蒂"}, source="x")
+    eid = card_store.copy_seed_to_world(storage, seed_id, world_id)
+    assert storage.get_entity(world_id, eid)["occupation"] == "医生"

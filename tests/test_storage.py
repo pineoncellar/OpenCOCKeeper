@@ -145,6 +145,20 @@ def test_entity_background_defaults_empty(storage, world_id):
     assert storage.get_entity(world_id, "player_01")["background"] == {}
 
 
+def test_entity_occupation_crud(storage, world_id):
+    """职业列（迁移 5）：create 携带 occupation，get 返回，update 可改。"""
+    storage.create_entity(world_id, "player_01", "PC", "费莉西蒂", occupation="医生")
+    assert storage.get_entity(world_id, "player_01")["occupation"] == "医生"
+    storage.update_entity(world_id, "player_01", occupation="私家侦探")
+    assert storage.get_entity(world_id, "player_01")["occupation"] == "私家侦探"
+
+
+def test_entity_occupation_defaults_empty(storage, world_id):
+    """不传 occupation 时默认为空串。"""
+    storage.create_entity(world_id, "player_01", "PC", "费莉西蒂")
+    assert storage.get_entity(world_id, "player_01")["occupation"] == ""
+
+
 # ====================================================================
 # 轮次 / 回档
 # ====================================================================

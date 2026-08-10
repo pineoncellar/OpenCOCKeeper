@@ -89,6 +89,14 @@ def test_assemble_background_not_injected(storage, world_id):
     assert "真正的力量" not in bundle.snapshot
 
 
+def test_assemble_pc_shows_occupation(storage, world_id):
+    """快照【调查员状态】随名字渲染职业（读取接口之一）。"""
+    storage.update_world(world_id, player_ids=["pc_01"])
+    storage.create_entity(world_id, "pc_01", "PC", "费莉西蒂", occupation="医生")
+    bundle = assemble(storage, world_id)
+    assert "- 费莉西蒂（pc_01）[医生]" in bundle.snapshot
+
+
 def test_render_background_interface():
     """render_background 接口：独立拼装长文段，空/无/占位值均返回空串。"""
     assert render_background(None) == ""

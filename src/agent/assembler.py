@@ -128,8 +128,12 @@ def _render_pc(pc: Dict[str, Any]) -> str:
     技能表必须渲染进快照——否则模型看不到 PC 技能值，会误用 query_memory 反复
     检索自身数据（真实链路触顶教训），浪费检索并陷入死循环。
     """
+    title = f"- {pc['name']}（{pc['id']}）"
+    occ = (pc.get("occupation") or "").strip()
+    if occ:
+        title = f"{title}[{occ}]"  # 状态：职业随名字渲染，主 Agent 每轮可见
     parts = [
-        f"- {pc['name']}（{pc['id']}）",
+        title,
         f"  HP {pc['hp']}/{pc['hp_max']} | SAN {pc['san']}/{pc['san_max']} | "
         f"MP {pc['mp']}/{pc['mp_max']}",
     ]

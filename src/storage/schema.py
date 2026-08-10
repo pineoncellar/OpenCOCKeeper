@@ -94,4 +94,8 @@ MIGRATIONS: list[list[str]] = [
     [
         "ALTER TABLE entities ADD COLUMN background TEXT NOT NULL DEFAULT '{}'",
     ],
+    # 迁移 5：entities 增加 occupation 职业列（角色卡 xlsx E5 格子，导入/建卡时写入）
+    [
+        "ALTER TABLE entities ADD COLUMN occupation TEXT NOT NULL DEFAULT ''",
+    ],
 ]

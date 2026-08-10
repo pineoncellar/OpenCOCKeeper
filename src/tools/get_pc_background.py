@@ -33,9 +33,9 @@ def get_pc_background(storage, raw_input: dict) -> dict:
         entity = storage.get_entity(world_id, entity_id)
         if entity is None:
             raise EntityNotFoundError(f"实体不存在: {world_id}/{entity_id}")
-        targets = [entity]
+        targets = [entity]  # 状态：显式定位单个 PC
     else:
-        targets = storage.get_entities(world_id, entity_type="PC")
+        targets = storage.get_entities(world_id, entity_type="PC")  # 状态：缺省查全部 PC
 
     backgrounds: List[Dict[str, Any]] = []
     for e in targets:

@@ -118,7 +118,7 @@ def copy_seed_to_world(
     data = load_seed(seed_id)
     entity = data["entity"]
     if entity_id is None:
-        # 世界内同类型实体序号递增分配，保证复合主键 (world_id, id) 唯一
+        # 世界内同类型实体序号递增分配，保证复合主键 (world_id, id) 唯一  # 状态：自动分配
         count = len(storage.get_entities(world_id, entity_type="PC"))
         entity_id = make_entity_id("PC", count + 1)
 
@@ -127,6 +127,7 @@ def copy_seed_to_world(
         entity_id,
         entity.get("entity_type", "PC"),
         entity.get("name", ""),
+        occupation=entity.get("occupation", ""),
         hp=int(entity.get("hp", 0)),
         hp_max=int(entity.get("hp_max", 0)),
         mp=int(entity.get("mp", 0)),

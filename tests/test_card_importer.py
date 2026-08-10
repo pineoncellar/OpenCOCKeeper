@@ -97,6 +97,13 @@ def test_parse_entity_stats_and_skills(tmp_path):
     assert aas["斗殴"] == 25
 
 
+def test_parse_entity_occupation(tmp_path):
+    """entity：职业读角色卡 E5 格子。"""
+    card = _make_card(tmp_path / "felicity.xlsx")
+    entity = parse_investigator_xlsx(card)["entity"]
+    assert entity["occupation"] == "私家侦探"
+
+
 def test_parse_entity_derived_hp_san_mp(tmp_path):
     """entity：HP/SAN/MP 由八属性衍生（CON+SIZ//2、POW//5、POW），满状态入场。"""
     card = _make_card(tmp_path / "felicity.xlsx")

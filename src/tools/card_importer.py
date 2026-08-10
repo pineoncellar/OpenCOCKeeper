@@ -262,14 +262,18 @@ def _parse_full_backstory(ws) -> str:
 
 
 def _parse_inventory(ws) -> List[str]:
-    """提取背包物品（F 列和 N 列的自由文本）"""
+    """提取背包物品（F 列和 N 列的自由文本）。
+
+    单元格内换行是有意的卡格式（写卡时特意分行表示独立物品），整格作为一条保留，
+    不要合并/拆分——真实卡实测（费利西蒂·马瑟斯.xlsx）即如此。
+    """
     items: List[str] = []
     for r in range(_ROW_INV_START, _ROW_INV_END + 1):
         for col in (_INV_COL_LEFT, _INV_COL_RIGHT):
             raw = ws.cell(row=r, column=col).value
             val = str(raw).strip() if raw else ""
             if val and val not in ("状态", "部位", "物品名称", "背包格↓", ""):
-                items.append(val)
+                items.append(val)  # 状态：整格一条保留（换行是有意拆分）
     return items
 
 
@@ -307,7 +311,7 @@ def parse_investigator_xlsx(filepath: str | Path) -> Dict[str, Any]:
     import openpyxl  # 惰性导入：未装 openpyxl 时此处清晰报错
 
     wb = openpyxl.load_workbook(str(filepath), data_only=True)
-    ws = wb["人物卡"]
+    ws = wb["人物卡"]  # 状态：固定读"人物卡" sheet
 
     name, gender, age, birthplace, occupation = _parse_basic_info(ws)
     stats, luck = _parse_stats(ws)
@@ -327,6 +331,7 @@ def parse_investigator_xlsx(filepath: str | Path) -> Dict[str, Any]:
     entity = {
         "entity_type": "PC",
         "name": name,
+        "occupation": occupation,
         "hp": max_hp,
         "hp_max": max_hp,
         "mp": max_mp,
