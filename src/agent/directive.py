@@ -24,6 +24,8 @@ PRESENT_DIRECTIVE_SCHEMA: Dict[str, Any] = {
         "description": (
             "【收尾工具，信息足够即必须调用】输出本轮《叙事决策大纲》的叙事导演手记"
             "（Markdown，含规则裁决、剧情推进与事实揭露、氛围与演播建议），供下游 Narrator 演播。"
+            "手记可含「### NPC 扮演提示」小节：关键 NPC 写明人设与反应；"
+            "次要 NPC 可略过（Narrator 将即兴发挥，不得违背其身份事实）。"
             "一旦检索与判定信息足够支撑本轮裁决，立即调用本工具结束本轮，不要继续检索"
         ),
         "parameters": {
