@@ -25,7 +25,10 @@ _TOOL_DESC = {
     ),
     "query_memory": (
         "检索世界内长程剧情记忆。当需要回顾过往伏笔、历史事件或确认玩家"
-        "是否知晓某信息时调用；queries 建议给 1~3 条描述性查询变体"
+        "是否知晓某信息时调用；queries 建议给 1~3 条描述性查询变体。"
+        "注意：调查员的【角色背景】小节已在上下文中给出其进入模组剧情之前的故事"
+        "（人物底色/动机/羁绊/创伤），属人物底稿而非检索目标；"
+        "本工具检索的是模组剧情内发生的事件记忆"
     ),
     "check_and_update_stats": (
         "执行规则检定、扣减 HP/MP/SAN、增删背包物品。当玩家行动涉及"
@@ -34,6 +37,12 @@ _TOOL_DESC = {
     "manage_tags": (
         "对实体或场景增删动态状态标签（如'流血'、'昏暗'）。当环境或角色"
         "物理/精神状态发生变化时调用，供后续上下文引用"
+    ),
+    "get_pc_background": (
+        "查询调查员进入模组剧情之前的故事（形象描述/思想与信念/重要之人/"
+        "意义非凡之地/宝贵之物/特质/伤口疤痕/恐惧症躁狂症/背景故事），"
+        "属人物底稿而非剧情记忆；当扮演或叙事决策需要人物动机、羁绊或过往时调用；"
+        "entity_id 缺省返回本世界全部 PC"
     ),
 }
 
@@ -110,6 +119,19 @@ def _manage_tags_schema() -> Dict[str, Any]:
     }
 
 
+def _get_pc_background_schema() -> Dict[str, Any]:
+    """get_pc_background 的 parameters：模型可只定位目标 PC，缺省查全部。"""
+    return {
+        "type": "object",
+        "properties": {
+            "entity_id": {
+                "type": "string",
+                "description": "目标 PC 实体 ID（如快照【调查员状态】所示），缺省返回本世界全部 PC",
+            },
+        },
+    }
+
+
 def build_tool_schemas() -> List[Dict[str, Any]]:
     """返回 4 个原子工具的 OpenAI function 定义数组，供 call_llm(tools=...) 使用。
 
@@ -122,12 +144,19 @@ def build_tool_schemas() -> List[Dict[str, Any]]:
         _function("query_memory", _query_memory_schema()),
         _function("check_and_update_stats", stats_params),
         _function("manage_tags", _manage_tags_schema()),
+        _function("get_pc_background", _get_pc_background_schema()),
     ]
 
 
 def tool_names() -> List[str]:
-    """返回 4 个原子工具的名字清单，供注册与日志使用。"""
-    return ["search_module", "query_memory", "check_and_update_stats", "manage_tags"]
+    """返回 5 个原子工具的名字清单，供注册与日志使用。"""
+    return [
+        "search_module",
+        "query_memory",
+        "check_and_update_stats",
+        "manage_tags",
+        "get_pc_background",
+    ]
 
 
 def build_main_agent_schemas() -> List[Dict[str, Any]]:

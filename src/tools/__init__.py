@@ -7,12 +7,14 @@
 
 from .check_and_update_stats import check_and_update_stats
 from .commit import apply_turn_change
+from .get_pc_background import get_pc_background
 from .manage_tags import manage_tags
 from .schemas import StatsUpdateInput, parse_stats_update, to_openai_function_schema
 
 __all__ = [
     "check_and_update_stats",
     "apply_turn_change",
+    "get_pc_background",
     "manage_tags",
     "StatsUpdateInput",
     "parse_stats_update",

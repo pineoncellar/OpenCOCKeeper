@@ -26,7 +26,7 @@ from .schema import MIGRATIONS
 
 # 白名单：拒绝拼接任意列名，从根上防 SQL 注入与误改
 _NUMERIC_COLUMNS = frozenset({"hp", "hp_max", "mp", "mp_max", "san", "san_max"})
-_JSON_COLUMNS = frozenset({"attributes_and_skills", "inventory", "tags"})
+_JSON_COLUMNS = frozenset({"attributes_and_skills", "inventory", "tags", "background"})
 _TEXT_COLUMNS = frozenset({"type", "name"})
 _WORLD_JSON_FIELDS = frozenset({"player_ids", "global_flags"})
 _WORLD_TEXT_FIELDS = frozenset({"game_phase", "global_recap"})
@@ -233,15 +233,20 @@ class Storage:
         attributes_and_skills: Optional[Dict[str, Any]] = None,
         inventory: Optional[List[dict]] = None,
         tags: Optional[List[str]] = None,
+        background: Optional[Dict[str, Any]] = None,
     ) -> dict:
-        """新建实体；世界必须已存在，否则抛 WorldNotFoundError。"""
+        """新建实体；世界必须已存在，否则抛 WorldNotFoundError。
+
+        background 为调查员入模组前的背景故事 JSON（形象/信念/羁绊/创伤等），
+        与 glyphkeeper Character 背景字段键对齐，键见 storage/schema.py 迁移 4 注释。
+        """
         self._require_world(world_id)
         with self._db.transaction() as conn:
             try:
                 conn.execute(
                     "INSERT INTO entities (world_id, id, type, name, hp, hp_max, mp, mp_max, "
-                    "san, san_max, attributes_and_skills, inventory, tags) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "san, san_max, attributes_and_skills, inventory, tags, background) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         world_id,
                         entity_id,
@@ -256,6 +261,7 @@ class Storage:
                         cjson.dumps(attributes_and_skills or {}),
                         cjson.dumps(inventory or []),
                         cjson.dumps(tags or []),
+                        cjson.dumps(background or {}),
                     ),
                 )
             except sqlite3.IntegrityError as e:

@@ -118,6 +118,7 @@ def build_default_runner(
     """
     from src.retrieval import search_module as _search_module
     from src.tools.check_and_update_stats import check_and_update_stats as _stats
+    from src.tools.get_pc_background import get_pc_background as _bg
     from src.tools.manage_tags import manage_tags as _tags
 
     runner = ToolRunner()
@@ -187,10 +188,20 @@ def build_default_runner(
             "state_diff": result["state_diff"],
         }
 
+    def _run_pc_background(**kwargs: Any) -> dict:
+        """get_pc_background：按需查 PC 入模组前背景（只读，无 state_diff）。"""
+        result = _bg(storage, kwargs)
+        return {
+            "ok": result["ok"],
+            "backgrounds": result["backgrounds"],
+            "summary": result["summary_for_agent"],
+        }
+
     runner.register("search_module", _run_search)
     runner.register("query_memory", _run_query_memory)
     runner.register("check_and_update_stats", _run_stats)
     runner.register("manage_tags", _run_tags)
+    runner.register("get_pc_background", _run_pc_background)
     return runner
 
 

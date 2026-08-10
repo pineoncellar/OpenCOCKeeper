@@ -80,6 +80,48 @@ def _render_item(item: Any) -> str:
     return str(item)
 
 
+# ====================================================================
+# 角色背景渲染
+# ====================================================================
+
+# 背景字段规范：存储键 → 展示标签（有序渲染，与 glyphkeeper Character 字段键对齐）
+BACKGROUND_FIELDS: tuple[tuple[str, str], ...] = (
+    ("appearance_desc", "形象描述"),
+    ("belief", "思想与信念"),
+    ("significant_person", "重要之人"),
+    ("significant_place", "意义非凡之地"),
+    ("cherished_possession", "宝贵之物"),
+    ("trait", "特质"),
+    ("injury_scar", "伤口和疤痕"),
+    ("phobias_manias", "恐惧症和躁狂症"),
+    ("full_backstory", "背景故事"),
+)
+
+# 占位/空值，渲染时整项跳过
+_BACKGROUND_EMPTY = frozenset({"", "无", "暂无", "-", "—", "N/A", "None"})
+
+
+def render_background(background: Optional[Dict[str, Any]]) -> str:
+    """把背景 JSON 渲染为长文段（仅含非空字段，逐项【标签】分行）。
+
+    背景语义（重要）：这是调查员进入模组剧情**之前**的故事——人物底色、动机、
+    羁绊与创伤；模组内新发生的事件属剧情记忆，应走 query_memory，绝不写回背景。
+    返回空串表示无可渲染内容（调用方决定是否占位）。
+    """
+    if not background:
+        return ""
+    lines: List[str] = []
+    for key, label in BACKGROUND_FIELDS:
+        value = background.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text or text in _BACKGROUND_EMPTY:
+            continue
+        lines.append(f"【{label}】{text}")
+    return "\n".join(lines)
+
+
 def _render_pc(pc: Dict[str, Any]) -> str:
     """渲染单个调查员硬数据：数值 + 技能表 + 动态 Tag + 背包物品清单。
 
@@ -126,6 +168,8 @@ def _render_snapshot(world: Dict[str, Any], pcs: List[dict]) -> str:
             section += _render_pc(pc).split("\n")
     else:
         section += ["", "【调查员状态】", "（暂无绑定调查员）"]
+    # 角色背景不随快照注入：静态人物底稿由主 Agent 经 get_pc_background 按需查询，
+    # 避免每轮默认烧 token（背景故事可能为大段散文，且不随回合变化）
     return "\n".join(section)
 
 

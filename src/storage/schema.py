@@ -86,4 +86,12 @@ MIGRATIONS: list[list[str]] = [
     [
         "ALTER TABLE world_state ADD COLUMN module_name TEXT NOT NULL DEFAULT ''",
     ],
+    # 迁移 4：entities 增加 background 列（调查员入模组前的背景故事 JSON）
+    # 键与 glyphkeeper Character 字段对齐：appearance_desc 形象描述 / belief 思想与信念 /
+    # significant_person 重要之人 / significant_place 意义非凡之地 / cherished_possession 宝贵之物 /
+    # trait 特质 / injury_scar 伤口和疤痕 / phobias_manias 恐惧症和躁狂症 / full_backstory 背景故事；
+    # 属"入局前固定资产"随卡持久化，模组内新事件走记忆库不写回本列
+    [
+        "ALTER TABLE entities ADD COLUMN background TEXT NOT NULL DEFAULT '{}'",
+    ],
 ]
