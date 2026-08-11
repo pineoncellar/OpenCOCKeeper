@@ -374,18 +374,56 @@ async def test_adapter_archived_world_blocks_player_input(storage, world_id, fak
     assert storage.next_turn_num(world_id) == 1  # 状态：未新增轮次
 
 
-async def test_adapter_archived_world_blocks_rollback(storage, world_id, fake_llm):
-    """归档世界只读：/rollback 被拦截。"""
-    adapter = CliAdapter(
-        storage=storage, memory=FakeMemory(storage=storage), llm=fake_llm.call,
+async def test_adapter_archived_world_rollback_reactivates(storage, world_id, fake_llm):
+    """归档世界 /rollback：撤销终局轮并自动解除归档恢复活跃（结团可反悔）。"""
+    # 直接构造"已结团"状态：终局轮 + __ENDING__ 快照 + ARCHIVED
+    storage.commit_turn(
+        world_id, 1, state_diff={},
+        context_data={
+            "user": "[KP 主动结团]", "assistant": "终局手记",
+            "is_ending": True, "ending_type": "BD",
+        },
     )
-    adapter._world_id = world_id
+    mem = FakeMemory(storage=storage)
+    await mem.write_ending_snapshot(
+        world_id, recap="最终 recap", ending_type="BD", narration="终局演播", turn_num=1,
+    )
     storage.update_world(world_id, status="ARCHIVED")
+    adapter = CliAdapter(storage=storage, memory=mem, llm=fake_llm.call)
+    adapter._world_id = world_id
+
     out = await adapter.handle(
         InboundMessage.system_cmd("/rollback 1", session_id="s")
     )
     assert out.type == MessageType.SYSTEM_MSG
-    assert "已归档" in out.text
+    assert "结团已撤销" in out.text
+    assert storage.get_world(world_id)["status"] == "ACTIVE"  # 状态：解除归档
+    assert storage.get_turn(world_id, 1) is None              # 终局轮已撤销
+    # RAG 侧 __ENDING__ 快照被同步物理清除（turn>=1）
+    assert all(i.get("tag") != "__ENDING__" for i in mem.backend._store[world_id])
+
+
+async def test_adapter_archived_world_noop_rollback_keeps_archived(storage, world_id, fake_llm):
+    """归档世界无操作回滚（/rollback latest+1）：终局轮保留，不解除归档。"""
+    storage.commit_turn(
+        world_id, 1, state_diff={},
+        context_data={
+            "user": "[KP 主动结团]", "assistant": "终局手记",
+            "is_ending": True, "ending_type": "BD",
+        },
+    )
+    mem = FakeMemory(storage=storage)
+    storage.update_world(world_id, status="ARCHIVED")
+    adapter = CliAdapter(storage=storage, memory=mem, llm=fake_llm.call)
+    adapter._world_id = world_id
+
+    out = await adapter.handle(
+        InboundMessage.system_cmd("/rollback 2", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert "未撤销终局轮" in out.text
+    assert storage.get_world(world_id)["status"] == "ARCHIVED"  # 状态：无操作不解除归档
+    assert storage.get_turn(world_id, 1) is not None            # 终局轮保留
 
 
 async def test_adapter_player_input_ending_resets_pointer(storage, world_id, fake_llm):

@@ -445,7 +445,9 @@ class AbstractAdapter(ABC):
 
         /rollback         列出最近轮次供选择
         /rollback <N>     回档到第 N 轮之前（撤销 >= N 的轮次）
-        回档复用 src.memory.worker.rollback_world 编排，与后台固化共享该世界锁互斥。
+        回档复用 src.memory.worker.rollback_world 编排，与后台固化共享该世界锁互斥；
+        归档（已结团）世界同样允许回滚——终局轮是最新轮，撤销 >= N 即回到结团之前，
+        回滚成功后自动把 status 从 ARCHIVED 恢复为 ACTIVE（结团撤销，可继续游玩）。
         """
         world_id = self._world_id
         if not world_id:
@@ -453,10 +455,8 @@ class AbstractAdapter(ABC):
                 "当前未选择世界。先 /world start 或 /world load。", level="warn", session_id=sid,
             )
         world = self.storage.get_world(world_id)
-        if world is not None and world.get("status") == "ARCHIVED":
-            return OutboundMessage.system_msg(
-                "世界已归档（结团），只读禁止回档。", level="warn", session_id=sid,
-            )
+        # 状态：记录归档标记——回滚成功后若撤销了终局轮，则解除归档恢复活跃
+        was_archived = world is not None and world.get("status") == "ARCHIVED"
         if self.memory is None:
             return OutboundMessage.system_msg(
                 "记忆后端未配置，无法执行语义侧回档。", level="warn", session_id=sid,
@@ -475,6 +475,8 @@ class AbstractAdapter(ABC):
                 snippet = (t["context_data"].get("user") or "")[:40]
                 lines.append(f"  #{t['turn_num']}  {snippet}")
             lines.append("使用 /rollback <N> 回档到第 N 轮之前。")
+            if was_archived:
+                lines.append("（本世界已结团归档，回滚到终局轮之前会自动解除归档）")
             return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
         if target < 1 or target > latest + 1:
@@ -492,10 +494,18 @@ class AbstractAdapter(ABC):
             return OutboundMessage.system_msg(
                 f"回档失败: {type(e).__name__}: {e}", level="error", session_id=sid,
             )
-        return OutboundMessage.system_msg(
+        lines = [
             f"已回档到第 {target} 轮之前（撤销 >= {target} 的轮次，RAG 清理 {deleted} 条）",
-            session_id=sid,
-        )
+        ]
+        if was_archived:
+            # 状态：仅当终局轮确被撤销才解除结团——归档世界只读无新轮，最新轮即终局轮；
+            # /rollback latest+1 这类无操作回滚不解除归档，避免"没回滚却撤销结团"
+            if self.storage.get_turn(world_id, latest) is None:
+                self.storage.update_world(world_id, status="ACTIVE")
+                lines.append("结团已撤销：世界恢复为活跃状态（ARCHIVED -> ACTIVE），可继续游玩")
+            else:
+                lines.append("未撤销终局轮，世界保持归档（结团）状态")
+        return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
     # ============================================
     # 记忆调试命令
@@ -706,7 +716,7 @@ _HELP_TEXT = (
     "======= 游戏 =======\n"
     "  /status                    - 查看当前世界与 PC 状态\n"
     "  /rollback                  - 列出最近轮次\n"
-    "  /rollback <N>              - 回档到第 N 轮之前（物理 + 语义双侧）\n"
+    "  /rollback <N>              - 回档到第 N 轮之前（物理 + 语义双侧；归档世界回滚即解除结团）\n"
     "  /memory <查询>             - 语义召回当前世界的历史记忆\n"
     "======= 其他 =======\n"
     "  /help /h                   - 显示此帮助\n"
