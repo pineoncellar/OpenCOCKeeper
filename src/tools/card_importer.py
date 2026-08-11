@@ -287,13 +287,16 @@ def _parse_inventory(ws) -> List[str]:
 
 
 def _derive_hp_san_mp(stats: Dict[str, int]) -> Tuple[int, int, int]:
-    """由八属性衍生 max HP/SAN/MP（对齐 glyphkeeper create_investigator）：
-    max_hp = (CON + SIZ) // 2；max_mp = max(1, POW // 5)；max_san = POW。
+    """由八属性衍生 max HP/SAN/MP（CoC 7th 规则）：
+    max_hp = (CON + SIZ) // 10；max_mp = max(1, POW // 5)；max_san = POW。
+
+    注意：CON/SIZ/POW 为百分值（15~90），除以 10 / 5 折算回基础属性（3~18）。
+    glyphkeeper 的 (CON+SIZ)//2 是错误实现（HP 高一倍），勿照抄。
     """
     con = stats.get("CON", 0)
     siz = stats.get("SIZ", 0)
     pow_ = stats.get("POW", 0)
-    max_hp = (con + siz) // 2
+    max_hp = (con + siz) // 10
     max_mp = max(1, pow_ // 5)
     max_san = pow_
     return max_hp, max_mp, max_san

@@ -105,10 +105,10 @@ def test_parse_entity_occupation(tmp_path):
 
 
 def test_parse_entity_derived_hp_san_mp(tmp_path):
-    """entity：HP/SAN/MP 由八属性衍生（CON+SIZ//2、POW//5、POW），满状态入场。"""
+    """entity：HP/SAN/MP 由八属性衍生（CON+SIZ//10、POW//5、POW），满状态入场。"""
     card = _make_card(tmp_path / "felicity.xlsx")
     entity = parse_investigator_xlsx(card)["entity"]
-    assert entity["hp"] == entity["hp_max"] == (60 + 50) // 2  # 55
+    assert entity["hp"] == entity["hp_max"] == (60 + 50) // 10  # 11
     assert entity["mp"] == entity["mp_max"] == max(1, 70 // 5)  # 14
     assert entity["san"] == entity["san_max"] == 70
     assert entity["entity_type"] == "PC"
@@ -139,7 +139,7 @@ def test_parse_entity_feed_create_entity(tmp_path, storage, world_id):
     storage.create_entity(world_id, "pc_01", **entity)
     saved = storage.get_entity(world_id, "pc_01")
     assert saved["name"] == "费莉西蒂·利丝"
-    assert saved["hp"] == 55 and saved["hp_max"] == 55
+    assert saved["hp"] == 11 and saved["hp_max"] == 11
     assert saved["san"] == 70 and saved["san_max"] == 70
     assert saved["attributes_and_skills"]["侦查"] == 60
     assert saved["background"]["belief"] == "真正的力量"
