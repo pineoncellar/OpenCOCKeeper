@@ -6,13 +6,15 @@
              主 Agent 的 search_module 原子工具未来直接挂本门面
 """
 
-from .index import ModuleIndex, build_index, clear_cache
+from .index import ModuleIndex, build_index, build_index_async, clear_cache
 from .models import Section, SectionHit
-from .search import search_module
+from .search import search_module, search_module_async
 
 __all__ = [
     "search_module",
+    "search_module_async",
     "build_index",
+    "build_index_async",
     "clear_cache",
     "ModuleIndex",
     "Section",

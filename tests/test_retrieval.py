@@ -229,3 +229,34 @@ def test_pdf_read_pure_text(_tmp_modules):
     # 空白 PDF 无文字层，read_module 返回空串且不崩溃
     assert read_module("demo.pdf") == ""
 
+
+# ====================================================================
+# 异步检索（运行中事件循环内无缓存路径，回归 delineate asyncio.run 冲突）
+# ====================================================================
+
+
+async def test_build_index_async_no_cache_within_event_loop(tmp_path, monkeypatch, fake_llm):
+    """无划界缓存的模组在运行中事件循环内异步建索引：走 await delineate，
+    不再触发 delineate_sync 的 asyncio.run 冲突（Opening Agent 首轮检索 bug 回归）。"""
+    from docx import Document
+    from src.module import loader as module_loader
+    from src.retrieval import build_index_async, clear_cache, search_module_async
+
+    d = tmp_path / "mods"
+    d.mkdir()
+    p = d / "no_cache.docx"
+    doc = Document()
+    doc.add_heading("无缓存模组", level=1)
+    doc.add_paragraph("雨后的清晨，委托人叩响了事务所的门。")
+    doc.save(p)
+    monkeypatch.setattr(module_loader, "MODULES_DIR", d)
+    clear_cache("no_cache.docx")  # 状态：清内存索引，确保走无缓存划界路径
+
+    # fake_llm 划界返回 "fake-ok"（不可解析 JSON）→ 空 metas → 整篇一段兜底，不崩
+    idx = await build_index_async("no_cache.docx")
+    assert idx.sections and idx.sections[0].title == "全文"
+
+    # 检索门面异步版同样可用（运行中循环内 await 划界/检索）
+    hits = await search_module_async("委托人", module_name="no_cache.docx")
+    assert hits and "委托人" in hits[0].section.content
+

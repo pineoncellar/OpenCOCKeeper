@@ -107,14 +107,15 @@ class ToolRunner:
 # ====================================================================
 
 
-def _run_search_tool(**kwargs: Any) -> dict:
+async def _run_search_tool(**kwargs: Any) -> dict:
     """search_module 工具实现：按 world_id 解析绑定模组，返回原文命中切片。
 
-    模块级公共函数，主 Agent 与开场 Agent（Opening Agent）共用同一检索实现。
+    async 版本——运行中事件循环内首次划界走 search_module_async，
+    避免 delineate_sync 的 asyncio.run 冲突；主 Agent 与开场 Agent 共用。
     """
-    from src.retrieval import search_module as _search_module
+    from src.retrieval import search_module_async as _search_module
 
-    hits = _search_module(
+    hits = await _search_module(
         kwargs.get("query") or "",
         world_id=kwargs["world_id"],
         top_k=int(kwargs.get("top_k") or 2),

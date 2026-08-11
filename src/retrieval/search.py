@@ -11,12 +11,32 @@ from __future__ import annotations
 from typing import List, Optional
 
 from ..core.db import get_db
-from .index import build_index
+from .index import build_index, build_index_async
 from .models import SectionHit
 from .tokenizer import norm, tokenize
 
 # 标题命中加权分：远高于 BM25 常规得分，保证结构匹配优先  # 状态：结构优先
 _TITLE_BONUS = 10.0
+
+
+def _score_sections(
+    idx, q_tokens: List[str], q_norm: str, top_k: int
+) -> List[SectionHit]:
+    """两阶段打分（标题结构匹配加权 + BM25 全文），同步与异步检索共用。"""
+    scored: List[tuple[float, int, bool]] = []
+    for i, sec in enumerate(idx.sections):
+        title_match = bool(q_norm) and q_norm in idx.title_norms[i]
+        score = idx.bm25.score(q_tokens, i)
+        if title_match:
+            score += _TITLE_BONUS
+        if score > 0 or title_match:
+            scored.append((score, i, title_match))
+    # 总分降序，同分时标题命中优先  # 状态：结果排序
+    scored.sort(key=lambda x: (-x[0], x[2]))
+    return [
+        SectionHit(idx.sections[i], round(score, 4), tm)
+        for score, i, tm in scored[:top_k]
+    ]
 
 
 def search_module(
@@ -28,6 +48,8 @@ def search_module(
 ) -> List[SectionHit]:
     """按查询检索模组原文，返回按相关度排序的命中章节（默认最匹配 2 段）。
 
+    同步门面——供无事件循环上下文（脚本/测试）使用；运行中的事件循环内
+    （主 Agent / 开场 Agent 工具）必须用 search_module_async。
     module_name 与 world_id 二选一：给了 world_id 则读取其绑定模组，
     两者皆缺省返回空列表。跨章节关联由主 Agent 读到原文后自行二次检索。
     """
@@ -37,22 +59,28 @@ def search_module(
     idx = build_index(name)
     q_tokens = tokenize(query)
     q_norm = norm(query)
+    return _score_sections(idx, q_tokens, q_norm, top_k)
 
-    scored: List[tuple[float, int, bool]] = []
-    for i, sec in enumerate(idx.sections):
-        title_match = bool(q_norm) and q_norm in idx.title_norms[i]
-        score = idx.bm25.score(q_tokens, i)
-        if title_match:
-            score += _TITLE_BONUS
-        if score > 0 or title_match:
-            scored.append((score, i, title_match))
 
-    # 总分降序，同分时标题命中优先  # 状态：结果排序
-    scored.sort(key=lambda x: (-x[0], x[2]))
-    return [
-        SectionHit(idx.sections[i], round(score, 4), tm)
-        for score, i, tm in scored[:top_k]
-    ]
+async def search_module_async(
+    query: str,
+    module_name: Optional[str] = None,
+    *,
+    world_id: Optional[str] = None,
+    top_k: int = 2,
+) -> List[SectionHit]:
+    """异步检索门面：运行中的事件循环内调用（主 Agent / 开场 Agent 工具）。
+
+    首次划界走 await build_index_async（复用当前事件循环），
+    避免同步 delineate_sync 的 asyncio.run 在已运行循环内抛错。
+    """
+    name = _resolve_module_name(module_name, world_id)
+    if not name:
+        return []
+    idx = await build_index_async(name)
+    q_tokens = tokenize(query)
+    q_norm = norm(query)
+    return _score_sections(idx, q_tokens, q_norm, top_k)
 
 
 def _resolve_module_name(

@@ -104,3 +104,31 @@ def resolve(module_name: str) -> Path:
             f"模组文件不存在: {name}（请先放入 {MODULES_DIR} 目录）"
         )
     return path
+
+
+def resolve_fuzzy(module_name: str) -> Path:
+    """解析模组路径，支持无扩展名的模糊匹配：按去扩展名文件名补全后缀。
+
+    先走精确 resolve（带后缀正常通过）；失败且名字不带扩展名时，扫描模组目录
+    按去扩展名文件名做「精确相等优先、包含次之」匹配补全后缀；仍无命中抛
+    ModuleFileMissingError（带后缀仍失败则直接抛原错误）。供适配器 /world start
+    等用户输入场景使用，避免必须手打 .pdf/.docx。
+    """
+    try:
+        return resolve(module_name)
+    except (UnsupportedFormatError, ModuleFileMissingError):
+        if Path(module_name).suffix:
+            raise  # 状态：带后缀仍失败，原错误直接抛出
+    stem = str(module_name).strip()
+    hits = []
+    for m in list_modules():
+        m_stem = m.module_name.rsplit(".", 1)[0]
+        if m_stem == stem or stem in m_stem:
+            hits.append(m.module_name)
+    if not hits:
+        raise ModuleFileMissingError(
+            f"模组文件不存在: {module_name}（data/modules 下未匹配到同名文件，"
+            f"可用 /module list 查看；支持 {sorted(SUPPORTED_EXTS)}）"
+        )
+    exact = [h for h in hits if h.rsplit(".", 1)[0] == stem]
+    return resolve((exact or hits)[0])
