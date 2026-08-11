@@ -111,7 +111,7 @@ class CliAdapter(AbstractAdapter):
     async def run_impl(self) -> None:
         """CLI 交互主循环：读入 -> parse -> handle -> send，/quit 退出。"""
         print(_BANNER)
-        print(_color("  输入 /world start <模组名> 开始游戏，或 /world use <世界ID> 切换", _DIM))
+        print(_color("  输入 /world start <模组名> 开始游戏，或 /world load <世界ID> 载入", _DIM))
         print(_color("  输入 /help 查看所有命令", _DIM))
         print()
 

@@ -68,6 +68,17 @@ def test_list_empty(_seed_tmp):
     assert card_store.list_seed_cards() == []
 
 
+def test_delete_seed(_seed_tmp):
+    """delete_seed 删除种子文件；已删后 list 为空、再删抛 FileNotFoundError。"""
+    seed_id = card_store.save_seed(_sample_entity(), {"name": "费莉西蒂"}, source="x")
+    assert card_store.list_seed_cards()  # 状态：删除前存在
+    assert card_store.delete_seed(seed_id) is True
+    assert card_store.list_seed_cards() == []
+    with pytest.raises(FileNotFoundError):
+        card_store.delete_seed(seed_id)
+
+
+
 def test_copy_seed_to_world(storage, world_id, _seed_tmp):
     """拷贝到世界：create_entity + 绑定 player_ids，种子文件保持不动。"""
     seed_id = card_store.save_seed(_sample_entity(), {"name": "费莉西蒂"}, source="x")

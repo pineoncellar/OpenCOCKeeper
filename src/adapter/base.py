@@ -111,7 +111,7 @@ class AbstractAdapter(ABC):
         world_id = msg.world_id or self._world_id  # 状态：消息已带世界优先，否则取会话当前世界
         if not world_id:
             return OutboundMessage.system_msg(
-                "当前未选择世界。请先用 /world start <模组名> 开始游戏，或 /world use <世界ID> 切换。",
+                "当前未选择世界。请先用 /world start <模组名> 开始游戏，或 /world load <世界ID> 载入。",
                 level="warn", session_id=msg.session_id,
             )
         try:
@@ -168,10 +168,12 @@ class AbstractAdapter(ABC):
     # ============================================
 
     async def _handle_world_cmd(self, cmd: str, sid: str) -> OutboundMessage:
-        """处理 /world 系列命令：list / start / use。
+        """处理 /world 系列命令：list / start / load / delete。
 
         /world start <模组名> 创建新世界并绑定 data/modules 下的模组文件（强制校验），
-        同时把会话切换到新世界；重复创建同名模组世界时序号自增，不覆盖已有世界。
+        同时把会话切换到新世界；重复创建同名模组世界时序号自增，不覆盖已有世界；
+        /world load <世界ID> 载入已有世界（会话切换，等同读档续玩）；
+        /world delete <世界ID> 永久删除世界（SQLite 级联实体/轮次/历史 + RAG 语义记忆）。
         """
         parts = cmd.split(maxsplit=2)
         sub = parts[1].strip().lower() if len(parts) > 1 else "list"
@@ -187,7 +189,7 @@ class AbstractAdapter(ABC):
                 mark = "  <- 当前" if w["world_id"] == self._world_id else ""
                 mod = w.get("module_name") or "-"
                 lines.append(f"  {w['world_id']}  [{mod}]{mark}")
-            lines.append("使用 /world use <世界ID> 切换。")
+            lines.append("使用 /world load <世界ID> 载入。")
             return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
         if sub == "start":
@@ -246,33 +248,65 @@ class AbstractAdapter(ABC):
             lines.append("直接输入行动文本开始探索。")
             return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
-        if sub == "use":
+        if sub == "load":
             world_id = parts[2].strip() if len(parts) > 2 else ""
             if not world_id or self.storage.get_world(world_id) is None:
                 return OutboundMessage.system_msg(
                     f"世界不存在: {world_id}。使用 /world list 查看已有世界。",
                     level="warn", session_id=sid,
                 )
-            self._world_id = world_id  # 状态：会话切换目标世界
-            return OutboundMessage.system_msg(f"已切换到世界: {world_id}", session_id=sid)
+            self._world_id = world_id  # 状态：会话载入目标世界
+            return OutboundMessage.system_msg(f"已载入世界: {world_id}", session_id=sid)
+
+        if sub == "delete":
+            world_id = parts[2].strip() if len(parts) > 2 else ""
+            if not world_id or self.storage.get_world(world_id) is None:
+                return OutboundMessage.system_msg(
+                    f"世界不存在: {world_id}。使用 /world list 查看已有世界。",
+                    level="warn", session_id=sid,
+                )
+            try:
+                from src.memory.worker import delete_world
+
+                # 状态：先清 RAG 语义记忆（需世界仍存在），再删 SQLite（级联实体/轮次/历史）
+                rag_deleted = await delete_world(
+                    self.storage, self.memory, world_id, worker=self.worker,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"删除世界失败 world={world_id}: {e}")
+                return OutboundMessage.system_msg(
+                    f"删除世界失败: {type(e).__name__}: {e}",
+                    level="error", session_id=sid,
+                )
+            if self._world_id == world_id:
+                self._world_id = None  # 状态：删除当前选中世界后取消会话指向
+            return OutboundMessage.system_msg(
+                f"世界已删除: {world_id}（RAG 清理 {rag_deleted} 条）", session_id=sid,
+            )
 
         return OutboundMessage.system_msg(
             "用法:\n"
             "  /world list               - 列出所有世界\n"
             "  /world start <模组名>     - 创建新世界并绑定模组\n"
-            "  /world use <世界ID>       - 切换当前世界",
+            "  /world load <世界ID>      - 载入已有世界\n"
+            "  /world delete <世界ID>    - 删除世界（级联 + RAG 清理）",
             level="warn", session_id=sid,
         )
 
     def _create_world_for_module(self, module_name: str) -> str:
-        """按模组名创建世界：序号取已有世界数 + 1，slug 由模组文件名清洗生成。"""
-        from src.module.loader import resolve as resolve_module
+        """按模组名创建世界：序号取已有世界数 + 1，slug 由模组文件名清洗生成。
 
-        resolve_module(module_name)  # 状态：绑定前强制校验模组文件存在（文件层唯一出口）
-        slug = _slugify(module_name)
+        模组名支持无扩展名模糊匹配（resolve_fuzzy 自动补 .pdf/.docx/.md）；
+        绑定与 world_id 一律用解析后的完整文件名，保证带后缀/不带后缀输入同一模组。
+        """
+        from src.module.loader import resolve_fuzzy as resolve_module
+
+        path = resolve_module(module_name)  # 状态：绑定前强制校验模组文件存在（含自动补后缀）
+        full_name = path.name
+        slug = _slugify(full_name)
         seq = len(self.storage.list_worlds()) + 1
         world_id = make_world_id(seq, slug)
-        self.storage.ensure_world(world_id, module_name=module_name)
+        self.storage.ensure_world(world_id, module_name=full_name)
         return world_id
 
     # ============================================
@@ -284,7 +318,7 @@ class AbstractAdapter(ABC):
         world_id = self._world_id
         if not world_id:
             return OutboundMessage.system_msg(
-                "当前未选择世界。使用 /world start <模组名> 或 /world use <世界ID>。",
+                "当前未选择世界。使用 /world start <模组名> 或 /world load <世界ID>。",
                 level="warn", session_id=sid,
             )
         world = self.storage.get_world(world_id)
@@ -324,7 +358,7 @@ class AbstractAdapter(ABC):
         world_id = self._world_id
         if not world_id:
             return OutboundMessage.system_msg(
-                "当前未选择世界。先 /world start 或 /world use。", level="warn", session_id=sid,
+                "当前未选择世界。先 /world start 或 /world load。", level="warn", session_id=sid,
             )
         if self.memory is None:
             return OutboundMessage.system_msg(
@@ -375,7 +409,7 @@ class AbstractAdapter(ABC):
         world_id = self._world_id
         if not world_id:
             return OutboundMessage.system_msg(
-                "当前未选择世界。先 /world start 或 /world use。", level="warn", session_id=sid,
+                "当前未选择世界。先 /world start 或 /world load。", level="warn", session_id=sid,
             )
         if self.memory is None:
             return OutboundMessage.system_msg(
@@ -410,11 +444,12 @@ class AbstractAdapter(ABC):
     # ============================================
 
     async def _handle_card_cmd(self, cmd: str, sid: str) -> OutboundMessage:
-        """处理 /card 系列命令：import / list / use。
+        """处理 /card 系列命令：import / list / use / delete。
 
         /card import <来源>  解析 xlsx 角色卡并存入种子库（world_id 空，不绑定任何世界）
         /card list           列出种子库中的候选角色（供 /world start 或 /card use 选择）
         /card use <种子id>   把种子角色拷贝一份到当前世界并绑定为 PC
+        /card delete <种子id> 删除种子库中的角色卡（不影响已拷贝进世界的 PC 副本）
         """
         parts = cmd.split(maxsplit=2)
         sub = parts[1].strip().lower() if len(parts) > 1 else "list"
@@ -476,7 +511,7 @@ class AbstractAdapter(ABC):
                 )
             if not world_id:
                 return OutboundMessage.system_msg(
-                    "当前未选择世界。先 /world start <模组名> 创建，或 /world use <世界ID> 切换。",
+                    "当前未选择世界。先 /world start <模组名> 创建，或 /world load <世界ID> 载入。",
                     level="warn", session_id=sid,
                 )
             try:
@@ -494,11 +529,33 @@ class AbstractAdapter(ABC):
                 session_id=sid,
             )
 
+        if sub == "delete":
+            seed_id = parts[2].strip() if len(parts) > 2 else ""
+            if not seed_id:
+                return OutboundMessage.system_msg(
+                    "用法: /card delete <种子id>\n使用 /card list 查看可用的种子角色。",
+                    level="warn", session_id=sid,
+                )
+            try:
+                from src.tools.card_store import delete_seed
+
+                delete_seed(seed_id)
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"种子卡删除失败: {e}")
+                return OutboundMessage.system_msg(
+                    f"删除种子卡失败: {type(e).__name__}: {e}",
+                    level="error", session_id=sid,
+                )
+            return OutboundMessage.system_msg(
+                f"种子卡已删除: {seed_id}", session_id=sid,
+            )
+
         return OutboundMessage.system_msg(
             "用法:\n"
             "  /card import <来源>    - 导入 xlsx 角色卡到种子库（路径或 data/cards 内文件名）\n"
             "  /card list             - 列出种子库中的候选角色\n"
-            "  /card use <种子id>     - 把种子角色拷贝到当前世界",
+            "  /card use <种子id>     - 把种子角色拷贝到当前世界\n"
+            "  /card delete <种子id>  - 删除种子库中的角色卡",
             level="warn", session_id=sid,
         )
 
@@ -540,12 +597,14 @@ _HELP_TEXT = (
     "======= 世界 =======\n"
     "  /world list                - 列出所有世界\n"
     "  /world start <模组名> [角色名...] - 创建世界并绑定模组，可选绑定种子角色\n"
-    "  /world use <世界ID>        - 切换当前世界\n"
+    "  /world load <世界ID>       - 载入已有世界\n"
+    "  /world delete <世界ID>     - 删除世界（级联 + RAG 清理）\n"
     "  /module list               - 列出可绑定的模组文件\n"
     "======= 角色卡 =======\n"
     "  /card import <来源>        - 导入 xlsx 角色卡到种子库（路径或 data/cards 内文件名）\n"
     "  /card list                 - 列出种子库中的候选角色\n"
     "  /card use <种子id>         - 把种子角色拷贝到当前世界\n"
+    "  /card delete <种子id>      - 删除种子库中的角色卡\n"
     "======= 游戏 =======\n"
     "  /status                    - 查看当前世界与 PC 状态\n"
     "  /rollback                  - 列出最近轮次\n"

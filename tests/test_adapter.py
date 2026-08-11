@@ -124,26 +124,60 @@ async def test_world_start_bad_module_rejected(storage, fake_llm):
     assert storage.list_worlds() == []
 
 
-async def test_world_list_and_use(storage, world_id, fake_llm):
-    """/world list 列出世界；/world use 切换当前世界。"""
+async def test_world_list_and_load(storage, world_id, fake_llm):
+    """/world list 列出世界；/world load 载入当前世界。"""
     adapter = CliAdapter(storage=storage, llm=fake_llm.call)
     listed = await adapter.handle(InboundMessage.system_cmd("/world list", session_id="s"))
     assert listed.type == MessageType.SYSTEM_MSG
     assert world_id in listed.text
 
-    used = await adapter.handle(InboundMessage.system_cmd(f"/world use {world_id}", session_id="s"))
-    assert "已切换" in used.text
+    loaded = await adapter.handle(InboundMessage.system_cmd(f"/world load {world_id}", session_id="s"))
+    assert "已载入" in loaded.text
     assert adapter._world_id == world_id
 
 
-async def test_world_use_unknown(storage, fake_llm):
-    """/world use 不存在的世界返回 warn。"""
+async def test_world_load_unknown(storage, fake_llm):
+    """/world load 不存在的世界返回 warn。"""
     adapter = CliAdapter(storage=storage, llm=fake_llm.call)
     out = await adapter.handle(
-        InboundMessage.system_cmd("/world use world_999_nope", session_id="s")
+        InboundMessage.system_cmd("/world load world_999_nope", session_id="s")
     )
     assert out.type == MessageType.SYSTEM_MSG
     assert out.data["level"] == "warn"
+
+
+async def test_world_delete_removes_world(storage, world_id, fake_llm):
+    """/world delete 删除世界并取消会话选中（SQLite 级联 + RAG 清理）。"""
+    from src.memory.fake import FakeMemory
+
+    storage.create_entity(
+        world_id, "pc_01", "PC", "费莉西蒂",
+        hp=8, hp_max=12, san=58, san_max=70,
+        attributes_and_skills={"侦查": 60},
+    )
+    memory = FakeMemory(storage=storage)
+    adapter = CliAdapter(storage=storage, memory=memory, llm=fake_llm.call)
+    adapter._world_id = world_id
+
+    out = await adapter.handle(
+        InboundMessage.system_cmd(f"/world delete {world_id}", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert "世界已删除" in out.text
+    assert storage.get_world(world_id) is None
+    assert storage.get_entities(world_id) == []  # 状态：外键级联实体一并删除
+    assert adapter._world_id is None  # 状态：删除当前选中世界后取消会话指向
+
+
+async def test_world_delete_unknown(storage, fake_llm):
+    """/world delete 不存在的世界返回 warn，不误删。"""
+    adapter = CliAdapter(storage=storage, llm=fake_llm.call)
+    out = await adapter.handle(
+        InboundMessage.system_cmd("/world delete world_999_nope", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert out.data["level"] == "warn"
+    assert "世界不存在" in out.text
 
 
 # ============================================
@@ -448,6 +482,42 @@ async def test_card_use_without_world(storage, tmp_path, monkeypatch, fake_llm):
     adapter = CliAdapter(storage=storage, llm=fake_llm.call)
     out = await adapter.handle(InboundMessage.system_cmd("/card use card_xxx", session_id="s"))
     assert "当前未选择世界" in out.text
+
+
+async def test_card_delete_removes_seed(storage, tmp_path, monkeypatch, fake_llm):
+    """/card delete 删除种子库中的角色卡文件。"""
+    from src.tools import card_store
+
+    monkeypatch.setattr(card_store, "SEED_DIR", tmp_path / "seeds")
+    seed_id = card_store.save_seed(
+        {
+            "entity_type": "PC", "name": "约翰", "hp": 10, "hp_max": 12,
+            "mp": 9, "mp_max": 9, "san": 60, "san_max": 99,
+            "attributes_and_skills": {}, "inventory": [], "background": {}, "tags": [],
+        },
+        {"name": "约翰", "occupation": "作家"}, source="x",
+    )
+    adapter = CliAdapter(storage=storage, llm=fake_llm.call)
+    out = await adapter.handle(
+        InboundMessage.system_cmd(f"/card delete {seed_id}", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert "种子卡已删除" in out.text
+    assert card_store.list_seed_cards() == []
+
+
+async def test_card_delete_unknown(storage, tmp_path, monkeypatch, fake_llm):
+    """/card delete 不存在的种子返回 error。"""
+    from src.tools import card_store
+
+    monkeypatch.setattr(card_store, "SEED_DIR", tmp_path / "seeds")
+    adapter = CliAdapter(storage=storage, llm=fake_llm.call)
+    out = await adapter.handle(
+        InboundMessage.system_cmd("/card delete card_xxx", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert out.data["level"] == "error"
+    assert "删除种子卡失败" in out.text
 
 
 async def test_card_import_bad_source(storage, tmp_path, monkeypatch, fake_llm):

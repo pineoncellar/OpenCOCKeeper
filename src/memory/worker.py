@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ..core.config import get_settings
+from ..core.exceptions import WorldNotFoundError
 from ..core.log import get_logger
 from ..storage.storage import Storage
 
@@ -311,4 +312,42 @@ async def _rollback_unlocked(storage: Storage, memory, world_id: str, turn_num: 
         )
     deleted = await memory.undo(world_id, turn_num)
     logger.info("RAG 回档 world=%s turn>=%s 删除=%s", world_id, turn_num, deleted)
+    return deleted
+
+
+# ============================================
+# 世界删除编排
+# ============================================
+
+
+async def delete_world(
+    storage: Storage,
+    memory,
+    world_id: str,
+    *,
+    worker: Optional[ConsolidationWorker] = None,
+) -> int:
+    """删除世界：先清空 RAG 语义记忆，再删除 SQLite 世界行（外键级联实体/轮次/历史）。
+
+    顺序约定（先语义后物理）：Memory.undo 前置要求世界仍存在（_require_world 校验），
+    故先以 turn>=0 全量清空该世界 RAG 记忆，再删 SQLite；SQLite 删除失败抛异常中断，
+    RAG 删除幂等可重试。传入 worker 时与其共享该世界异步锁，防止后台固化并发写入
+    孤儿记忆。返回 RAG 侧删除的记忆条数。
+    """
+    if worker is not None:
+        async with worker.get_world_lock(world_id):  # 状态：与后台固化互斥
+            return await _delete_world_unlocked(storage, memory, world_id)
+    return await _delete_world_unlocked(storage, memory, world_id)
+
+
+async def _delete_world_unlocked(storage: Storage, memory, world_id: str) -> int:
+    """无锁删除主体：RAG 全清 -> SQLite 删除。"""
+    deleted = 0
+    if memory is not None:
+        deleted = await memory.undo(world_id, 0)  # 状态：turn>=0 全量清空该世界语义记忆
+        logger.info("RAG 清空 world=%s 删除=%s", world_id, deleted)
+    removed = storage.delete_world(world_id)
+    if not removed:
+        raise WorldNotFoundError(f"世界不存在: {world_id}")
+    logger.info("SQLite 删除世界 world=%s", world_id)
     return deleted

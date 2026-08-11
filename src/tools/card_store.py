@@ -75,6 +75,19 @@ def load_seed(seed_id: str) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def delete_seed(seed_id: str) -> bool:
+    """删除种子角色（JSON 文件）；不存在抛 FileNotFoundError。
+
+    只删种子文件本身——已拷贝进世界的 PC 实体是独立副本，不受影响。
+    """
+    path = _seed_dir() / f"{seed_id}{_SEED_SUFFIX}"
+    if not path.exists():
+        raise FileNotFoundError(f"种子角色不存在: {seed_id}（/card list 查看）")
+    path.unlink()
+    logger.info("种子角色已删除: %s", seed_id)
+    return True
+
+
 def list_seed_cards() -> List[Dict[str, Any]]:
     """列出全部种子角色（meta 摘要 + 来源 + 导入时间，按导入时间倒序）。"""
     if not SEED_DIR.is_dir():
