@@ -3,6 +3,7 @@
 @File     :   test_agent_loop.py
 @Desc     :   主 Agent Function Calling 闭环测试：schema 注入剥离、ToolRunner 分发与
              state_diff 收集、run_tool_loop 收敛/触顶/失败路径（全程 fake LLM 零网络）
+@Note     :   工具清单为 6 原子工具（含 search_rule 只读规则检索）+ present_directive 收尾
 @Note     :   复用 conftest 的 storage/world_id/_tmp_modules/fake_llm 夹具；
              check_and_update_stats 走真实工具实现但注入固定随机源保证确定性
 """
@@ -29,16 +30,16 @@ from src.agent.schemas import tool_names
 
 
 def test_main_agent_schemas_includes_present_directive():
-    """主 Agent 工具清单：5 原子工具 + present_directive 收尾工具。"""
+    """主 Agent 工具清单：6 原子工具 + present_directive 收尾工具。"""
     schemas = build_main_agent_schemas()
     names = [s["function"]["name"] for s in schemas]
-    assert len(schemas) == 6
+    assert len(schemas) == 7
     assert names[-1] == "present_directive"
 
 
-def test_build_tool_schemas_has_five_tools():
+def test_build_tool_schemas_has_six_tools():
     schemas = build_tool_schemas()
-    assert len(schemas) == 5
+    assert len(schemas) == 6
     names = {s["function"]["name"] for s in schemas}
     assert names == set(tool_names())
 

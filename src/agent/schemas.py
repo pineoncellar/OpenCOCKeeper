@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 @File     :   schemas.py
-@Desc     :   主 Agent 4 个原子工具的 OpenAI Function Calling schema 集中注册
+@Desc     :   主 Agent 5 个原子工具的 OpenAI Function Calling schema 集中注册
 @Note     :   注入参数剥离——world_id / turn_num 由调度器运行时注入，不暴露给模型填写，
              杜绝跨世界/错轮次；check_and_update_stats 复用 src.tools.schemas 的
              parameters 但剔除注入字段；build_tool_schemas 产出可直接喂 call_llm(tools=)
@@ -43,6 +43,11 @@ _TOOL_DESC = {
         "意义非凡之地/宝贵之物/特质/伤口疤痕/恐惧症躁狂症/背景故事），"
         "属人物底稿而非剧情记忆；当扮演或叙事决策需要人物动机、羁绊或过往时调用；"
         "entity_id 缺省返回本世界全部 PC"
+    ),
+    "search_rule": (
+        "检索《克苏鲁的呼唤》基础规则库原文（data/rules 规则库）。当需要确认具体"
+        "规则条文、判定难度或数值流程（如某技能检定难度、理智损失、伤害与贯穿、"
+        "奖励/惩罚骰）时调用；返回未加工的规则原文切片"
     ),
 }
 
@@ -132,11 +137,26 @@ def _get_pc_background_schema() -> Dict[str, Any]:
     }
 
 
+def _search_rule_schema() -> Dict[str, Any]:
+    """search_rule 的 parameters：模型只填规则检索意图（只读工具，无注入参数）。"""
+    return {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "要查阅的规则内容描述，如'理智检定失败的后果'、'贯穿伤害如何结算'",
+            },
+            "top_k": {"type": "integer", "description": "返回规则段落数，缺省 3"},
+        },
+        "required": ["query"],
+    }
+
+
 def build_tool_schemas() -> List[Dict[str, Any]]:
-    """返回 4 个原子工具的 OpenAI function 定义数组，供 call_llm(tools=...) 使用。
+    """返回 5 个原子工具的 OpenAI function 定义数组，供 call_llm(tools=...) 使用。
 
     check_and_update_stats 复用 tools.schemas 的 parameters 但剔除注入字段，
-    其余三工具 schema 各自独立定义；字段名与工具实现完全一致。
+    其余四工具 schema 各自独立定义；字段名与工具实现完全一致。
     """
     stats_params = _drop_keys(_stats_parameters(), INJECTED_KEYS)
     return [
@@ -145,22 +165,24 @@ def build_tool_schemas() -> List[Dict[str, Any]]:
         _function("check_and_update_stats", stats_params),
         _function("manage_tags", _manage_tags_schema()),
         _function("get_pc_background", _get_pc_background_schema()),
+        _function("search_rule", _search_rule_schema()),
     ]
 
 
 def tool_names() -> List[str]:
-    """返回 5 个原子工具的名字清单，供注册与日志使用。"""
+    """返回 6 个原子工具的名字清单，供注册与日志使用。"""
     return [
         "search_module",
         "query_memory",
         "check_and_update_stats",
         "manage_tags",
         "get_pc_background",
+        "search_rule",
     ]
 
 
 def build_main_agent_schemas() -> List[Dict[str, Any]]:
-    """主 Agent 完整工具清单：4 原子工具 + present_directive 收尾工具。
+    """主 Agent 完整工具清单：5 原子工具 + present_directive 收尾工具。
 
     供 Director.run_turn 喂给 call_llm(tools=...)；收尾工具由闭环 stop 语义拦截，
     不参与普通工具执行（runner 侧另有兜底 handler 防失效）。

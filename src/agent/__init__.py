@@ -3,7 +3,7 @@
 @File     :   agent/__init__.py
 @Desc     :   Agent 层：工具 schema + Function Calling 闭环 + Context Assembler + Director 编排
              + Narrator 润色 + 串行管线
-@Note     :   四件套——工具清单（4 原子 + present_directive 收尾）、ToolRunner 执行、
+@Note     :   四件套——工具清单（5 原子 + present_directive 收尾）、ToolRunner 执行、
              run_tool_loop 闭环、ContextBundle 装配、Director.run_turn 回合编排；
              下游——Narrator 无状态演播器、run_narrated_turn 串行管线（裁决→演播→落库）；
              world_id / turn_num 经 run_tool_loop 注入，模型不可见

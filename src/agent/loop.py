@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 ToolFunc = Callable[..., Dict[str, Any]]
 
 # 检索类工具：信息获取型调用，反复执行易陷入"永远查不够"的循环
-_SEARCH_TOOLS = frozenset({"search_module", "query_memory"})
+_SEARCH_TOOLS = frozenset({"search_module", "query_memory", "search_rule"})
 
 # 检索累计次数达到该阈值后，向消息流注入收敛提示，工程侧强制引导模型交卷
 CONVERGE_HINT_AFTER = 4
@@ -149,14 +149,41 @@ def _run_pc_background_tool(storage, **kwargs: Any) -> dict:
     }
 
 
+async def _run_search_rule_tool(**kwargs: Any) -> dict:
+    """search_rule 工具实现：固定检索 data/rules 规则库，返回未加工的规则原文切片。
+
+    纯只读工具——不返回 state_diff、不写 SQLite、不依赖 world_id，
+    仅把检索到的规则段落打包为 tool_response 送回主 Agent 循环。
+    """
+    from src.retrieval import search_rule_async as _search_rule
+
+    hits = await _search_rule(
+        kwargs.get("query") or "",
+        top_k=int(kwargs.get("top_k") or 3),
+    )
+    return {
+        "ok": True,
+        "hits": [
+            {
+                "source": h.section.source_location,
+                "title": h.section.title,
+                "content": h.section.content,
+                "score": h.score,
+            }
+            for h in hits
+        ],
+    }
+
+
 def build_default_runner(
     storage, memory: Optional[Any] = None, rng: Optional[object] = None
 ) -> ToolRunner:
-    """构造注册了 4 个原子工具的 ToolRunner。
+    """构造注册了 6 个原子工具的 ToolRunner。
 
     storage: Storage 门面；memory: Memory 门面（query_memory 用，可为 None）；
     rng: 测试注入的确定骰序（透传给 check_and_update_stats）。
-    工具均为纯计算不写库，state_diff 收集在 runner.collected_diffs。
+    除 search_module/query_memory/search_rule 三个检索工具外均为纯计算不写库，
+    state_diff 收集在 runner.collected_diffs；search_rule 为纯只读零副作用。
     """
     from src.tools.check_and_update_stats import check_and_update_stats as _stats
     from src.tools.manage_tags import manage_tags as _tags
@@ -213,6 +240,7 @@ def build_default_runner(
     runner.register("check_and_update_stats", _run_stats)
     runner.register("manage_tags", _run_tags)
     runner.register("get_pc_background", lambda **kw: _run_pc_background_tool(storage, **kw))
+    runner.register("search_rule", _run_search_rule_tool)
     return runner
 
 
