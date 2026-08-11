@@ -20,6 +20,23 @@ from src.llm import LLMResult
 
 logger = get_logger(__name__)
 
+
+def _brief(value: Any, limit: int = 60) -> str:
+    """把任意值折叠成单行短摘要（去空白 + 截断），避免长参数/叙事刷屏日志。"""
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _brief_args(arguments: Optional[dict], limit: int = 60) -> str:
+    """工具参数摘要：逐键截断合并；空参数返回占位。"""
+    if not arguments:
+        return "(无参数)"
+    return " ".join(f"{k}={_brief(v, limit)}" for k, v in arguments.items())
+
+
 # 工具执行函数签名：接收模型参数 + 注入参数，返回可 JSON 序列化的 dict
 ToolFunc = Callable[..., Dict[str, Any]]
 
@@ -81,6 +98,8 @@ class ToolRunner:
             return {"ok": False, "error": f"未知工具: {name}"}
         merged: dict = dict(arguments or {})
         merged.update(inject)
+        # 状态：每调一个工具即打日志（工具名 + 参数摘要），便于 CLI/文件侧调试闭环
+        logger.info("工具调用 name=%s %s", name, _brief_args(arguments))
         try:
             result = fn(**merged)
             if inspect.isawaitable(result):  # 状态：异步工具 await
@@ -99,6 +118,10 @@ class ToolRunner:
         check = result.get("check")
         if check:
             self.collected_checks.append(check)
+        logger.debug(
+            "工具返回 name=%s ok=%s diff=%s check=%s",
+            name, result.get("ok"), bool(diff), bool(check),
+        )
         return result
 
 
@@ -339,6 +362,7 @@ async def run_tool_loop(
         if not hinted and search_count >= hint_after:
             current = _append_converge_hint(current)
             hinted = True
+        logger.debug("工具闭环 LLM 请求 第 %d/%d 轮 tier=%s", i, max_iterations, tier)
         result = await llm(tier, current, tools=tools, temperature=temperature)
         if not result.is_ok:
             return ToolLoopResult(
@@ -346,6 +370,10 @@ async def run_tool_loop(
             )
         if not result.tool_calls:
             # 状态：模型不再调用工具，收敛
+            logger.info(
+                "工具闭环收敛 world=%s turn=%s 轮数=%d 工具调用=%d",
+                world_id, turn_num, i, len(executed),
+            )
             return ToolLoopResult(
                 final=result, tool_calls=executed, iterations=i, converged=True
             )
@@ -357,6 +385,10 @@ async def run_tool_loop(
             ]
             if stop_calls:
                 stop = stop_calls[0]
+                logger.info(
+                    "工具闭环收尾工具命中 world=%s turn=%s name=%s 轮数=%d 工具调用=%d",
+                    world_id, turn_num, stop["name"], i, len(executed),
+                )
                 return ToolLoopResult(
                     final=result,
                     tool_calls=executed,
@@ -368,6 +400,10 @@ async def run_tool_loop(
                     },
                 )
         # 状态：回填 assistant tool_calls 消息 + 各工具结果消息
+        logger.info(
+            "工具闭环 第 %d/%d 轮返回 %d 个工具调用 world=%s turn=%s",
+            i, max_iterations, len(result.tool_calls), world_id, turn_num,
+        )
         current.append(_build_assistant_tool_message(result.tool_calls))
         for tc in result.tool_calls:
             if tc["name"] in _SEARCH_TOOLS:  # 状态：累计检索次数用于触发收敛提示

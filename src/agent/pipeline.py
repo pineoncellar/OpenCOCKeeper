@@ -266,6 +266,10 @@ async def run_narrated_turn(
         if t["turn_num"] != directive.turn_num
     ]
     narration = await narrator.narrate(directive, recent=recent, action=action)
+    logger.info(
+        "Narrator 演播完成 world=%s turn=%s 叙事长度=%d",
+        world_id, directive.turn_num, len(narration),
+    )
     # 状态：玩家视角叙事覆盖 assistant，手记权威副本转存 directive 键，checks 保留
     storage.update_turn_context_data(
         world_id,

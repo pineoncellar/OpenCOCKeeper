@@ -15,17 +15,20 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable, Optional
 
 from src.agent.assembler import assemble
+from src.agent.loop import _brief, build_default_runner, run_tool_loop
 from src.core.config import get_settings
+from src.core.log import get_logger
 from src.agent.directive import (
     NarrativeDirective,
     PRESENT_DIRECTIVE_NAME,
     extract_ending,
     extract_narrative_directive,
 )
-from src.agent.loop import build_default_runner, run_tool_loop
 from src.agent.schemas import build_main_agent_schemas
 from src.core.exceptions import AgentLoopError
 from src.tools.commit import apply_turn_change
+
+logger = get_logger(__name__)
 
 # llm 可调用签名：await llm(tier, messages, tools=..., temperature=...)
 LLMCallable = Callable[..., Awaitable[Any]]
@@ -85,6 +88,9 @@ class Director:
         turn = (
             turn_num if turn_num is not None else self._storage.next_turn_num(world_id)
         )
+        logger.info(
+            "回合开始 world=%s turn=%s action=%s", world_id, turn, _brief(action)
+        )
         bundle = assemble(self._storage, world_id, action=action)
         runner = build_default_runner(
             self._storage, memory=self._memory, rng=self._rng
@@ -140,6 +146,12 @@ class Director:
             turn,
             diffs=runner.collected_diffs,
             context_data=context_data,
+        )
+        logger.info(
+            "回合裁决完成 world=%s turn=%s converged=%s 工具调用=%d diffs=%d "
+            "checks=%d is_ending=%s",
+            world_id, turn, converged, len(result.tool_calls),
+            len(runner.collected_diffs), len(runner.collected_checks), is_ending,
         )
         return NarrativeDirective(
             state_changes=record["state_diff"],
