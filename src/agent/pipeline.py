@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 @File     :   pipeline.py
-@Desc     :   串行管线编排：Director（裁决）→ Narrator（演播）→ 玩家视角叙事落库
+@Desc     :   串行管线编排：Director（裁决）→ Narrator（演播）→ 玩家视角叙事落库；
+             终局分支——Director 判定 is_ending 后进入收尾管线（终局演播 + 全盘固化
+             + __ENDING__ 快照 + 世界归档），常规回合与终局收尾共用本模块
 @Note     :   run_narrated_turn 为阶段三的对外入口——先跑主 Agent 回合拿契约，
              再让 Narrator 把契约翻译成玩家文本，最后把叙事覆盖 assistant 落库
              （手记权威副本存 directive 键、checks 保留），保证近程历史成为
              玩家视角对话、审计仍可回查手记；Narrator 失败抛 NarratorError，
-             物理状态与手记已落库不受影响，上层可降级对外输出
+             物理状态与手记已落库不受影响，上层可降级对外输出；
+             终局收尾走 run_ending_wrapup——无静默降级，任一步失败抛 EndingError
+             且世界保持 ACTIVE 不归档（用户修复后重试），固化成功后才置 ARCHIVED
 """
 
 from __future__ import annotations
@@ -14,13 +18,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
-from src.agent.directive import NarrativeDirective
+from src.agent.directive import (
+    ENDING_TYPES,
+    NarrativeDirective,
+)
 from src.agent.director import Director
 from src.agent.narrator import Narrator
 from src.core.config import get_settings
+from src.core.exceptions import EndingError
 from src.core.log import get_logger
+from src.tools.commit import apply_turn_change
 
 logger = get_logger(__name__)
+
+# /world archive 主动结团的默认导演手记（BD 软结局：未走到模组终幕由 KP 收束）
+_MANUAL_ENDING_HANDOFF = (
+    "守秘人（KP）主动终止了本次调查：调查员们未能走到模组终幕，"
+    "冒险在未尽的线索与未平的余波中收束（软结局）。请以终局演播收尾。"
+)
 
 
 @dataclass
@@ -29,6 +44,162 @@ class NarratedTurn:
 
     directive: NarrativeDirective       # 主 Agent 裁决契约（含手记 / checks / state_changes）
     narration: str                      # Narrator 演播的最终玩家文本
+    ended: bool = False                 # 是否为终局收尾轮（is_ending=True 并已归档）
+    ending_type: str = ""               # 终局类型 HD/TD/BD，非终局为空串
+    recap: str = ""                     # 归档后的最终全盘前情提要（终局轮才非空）
+
+
+@dataclass
+class EndedTurn:
+    """终局收尾的对外交付物：终局演播文本 + 最终 recap + 结局类型。"""
+
+    narration: str                      # 终局演播文本（闭幕感 + 后日谈）
+    ending_type: str                    # 结局类型 HD/TD/BD
+    recap: str                          # 归档后的最终全盘前情提要（global_recap）
+    turn_num: int                       # 终局落库轮次
+
+
+# ====================================================================
+# 终局收尾管线
+# ====================================================================
+
+
+def prepare_manual_ending(
+    storage,
+    world_id: str,
+    *,
+    ending_type: str = "BD",
+    handoff: Optional[str] = None,
+) -> NarrativeDirective:
+    """为 /world archive 主动结团构造终局契约：复用已存在的未归档终局轮（重试幂等），
+    否则新落一轮终局轮次（user='[KP 主动结团]'）并返回契约。
+
+    ending_type 非法时兜底 BD；世界不存在/已归档抛 EndingError。
+    """
+    world = storage.get_world(world_id)
+    if world is None:
+        raise EndingError(f"世界不存在: {world_id}")
+    if world.get("status") == "ARCHIVED":
+        raise EndingError(f"世界已归档: {world_id}，无需重复结团")
+    # 重试幂等：已有未归档终局轮则复用该轮，避免 /world archive 失败后重试重复落轮
+    for t in reversed(storage.get_recent_turns(world_id)):
+        cd = t.get("context_data") or {}
+        if cd.get("is_ending"):
+            return NarrativeDirective(
+                state_changes={},
+                narrative_directive=cd.get("directive") or _MANUAL_ENDING_HANDOFF,
+                turn_num=t["turn_num"],
+                converged=False,
+                is_ending=True,
+                ending_type=cd.get("ending_type") or "BD",
+            )
+    et = str(ending_type).strip().upper()
+    if et not in ENDING_TYPES:
+        et = "BD"
+    handoff = (handoff or _MANUAL_ENDING_HANDOFF).strip()
+    turn_num = storage.next_turn_num(world_id)
+    apply_turn_change(
+        storage,
+        world_id,
+        turn_num,
+        diffs=[],
+        context_data={
+            "user": "[KP 主动结团]",
+            "assistant": handoff,
+            "directive": handoff,
+            "is_ending": True,
+            "ending_type": et,
+        },
+    )
+    return NarrativeDirective(
+        state_changes={},
+        narrative_directive=handoff,
+        turn_num=turn_num,
+        converged=False,
+        is_ending=True,
+        ending_type=et,
+    )
+
+
+async def run_ending_wrapup(
+    storage,
+    world_id: str,
+    directive: NarrativeDirective,
+    *,
+    memory: Any,
+    llm: Optional[Any] = None,
+    narrator: Optional[Narrator] = None,
+    worker: Optional[Any] = None,
+) -> EndedTurn:
+    """终局收尾：终局演播 → 终局叙事落库 → 全盘固化 → __ENDING__ 快照 → 世界归档。
+
+    无静默降级——演播/落库/固化/快照/归档任一步失败抛 EndingError 中断停运，
+    世界状态保持 ACTIVE 不归档（状态绝对一致，用户修复后经 /world archive 重试，
+    复用同一终局轮不重复落轮）；固化/快照/归档与后台固化共享世界锁防并发。
+    前置要求：directive 的终局轮已落库（模型路径由 Director 落，手动路径由
+    prepare_manual_ending 落）。
+    """
+    if narrator is None:
+        narrator = Narrator(llm=llm)
+    # 终局演播为纯计算前置，失败零残留（终局轮已含手记，可干净重试）
+    try:
+        narration = await narrator.narrate(directive, ending=True)
+    except Exception as e:  # noqa: BLE001  演播失败统一转 EndingError
+        raise EndingError(f"终局演播失败: {type(e).__name__}: {e}") from e
+    # 终局叙事覆盖 assistant 落库，终局字段权威副本入 context_data
+    try:
+        storage.update_turn_context_data(
+            world_id,
+            directive.turn_num,
+            assistant=narration,
+            is_ending=True,
+            ending_type=directive.ending_type,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise EndingError(f"终局叙事落库失败: {type(e).__name__}: {e}") from e
+    # 固化 + 快照 + 归档：与后台固化共享世界锁，保证与轮询/回档互斥
+    if worker is not None:
+        async with worker.get_world_lock(world_id):  # 状态：与后台固化互斥
+            return await _finalize_ending(storage, memory, world_id, directive, narration)
+    return await _finalize_ending(storage, memory, world_id, directive, narration)
+
+
+async def _finalize_ending(
+    storage, memory, world_id: str, directive: NarrativeDirective, narration: str
+) -> EndedTurn:
+    """无锁终局固化主体：全盘固化 -> 读最终 recap -> 写快照 -> 世界归档。"""
+    # 全盘固化：await 同步完成（非后台 fire-and-forget），失败不标记进度可整批重试
+    try:
+        await memory.consolidate(world_id)
+    except Exception as e:  # noqa: BLE001
+        raise EndingError(f"终局固化失败: {type(e).__name__}: {e}") from e
+    recap = (storage.get_world(world_id) or {}).get("global_recap") or ""
+    # 终局快照：仅存最终 recap + 结局类型 + 终局演播文本这一核心锚点
+    try:
+        await memory.write_ending_snapshot(
+            world_id,
+            recap=recap,
+            ending_type=directive.ending_type,
+            narration=narration,
+            turn_num=directive.turn_num,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise EndingError(f"终局快照写入失败: {type(e).__name__}: {e}") from e
+    # 世界归档：固化与快照全部成功后才置 ARCHIVED，杜绝半归档脏状态
+    try:
+        storage.update_world(world_id, status="ARCHIVED")
+    except Exception as e:  # noqa: BLE001
+        raise EndingError(f"世界归档失败: {type(e).__name__}: {e}") from e
+    logger.info(
+        "终局收尾完成 world=%s turn=%s ending=%s",
+        world_id, directive.turn_num, directive.ending_type,
+    )
+    return EndedTurn(
+        narration=narration,
+        ending_type=directive.ending_type,
+        recap=recap,
+        turn_num=directive.turn_num,
+    )
 
 
 async def run_narrated_turn(
@@ -45,18 +216,22 @@ async def run_narrated_turn(
     recent_limit: Optional[int] = None,
     rng: Optional[object] = None,
     on_turn_committed: Optional[Callable[[str, int], Awaitable[None]]] = None,
+    memory: Optional[Any] = None,
+    worker: Optional[Any] = None,
 ) -> NarratedTurn:
     """执行一轮完整管线：裁决 → 演播 → 落库，返回 NarratedTurn。
 
     director / narrator 可注入（测试用 fake 或定制）；缺省分别新建；
     llm 为两者共用的可调用对象（对齐 call_llm 签名，不传则各自动态解析）；
     recent_limit 为近程历史注入轮数，缺省取 config.context.assembler.recent_turns；
-    on_turn_committed 为落库完成后的触发钩子（如通知后台固化 Worker），
+    on_turn_committed 为常规回合落库完成后的触发钩子（如通知后台固化 Worker），
     签名 (world_id, turn_num)，应尽快返回——长耗时逻辑请自行 create_task；
-    钩子失败仅记日志，不影响本轮交付。
-    流程：先 Director.run_turn 落库契约，再读近程历史（不含本轮），
-    Narrator 翻译后把叙事覆盖该轮 assistant 落库（手记存 directive 键），
-    最后触发 on_turn_committed 钩子。
+    钩子失败仅记日志，不影响本轮交付；终局轮不触发该钩子（走同步收尾固化）。
+    memory / worker 为终局收尾所需——Director 判定 is_ending=True 时进入收尾管线
+    （终局演播 + 全盘固化 + 快照 + 归档），memory 缺失抛 EndingError 无静默降级。
+    流程：先 Director.run_turn 落库契约，再按是否终局分叉——终局走
+    run_ending_wrapup 收尾并归档；常规走 Narrator 翻译、叙事覆盖 assistant 落库
+    （手记存 directive 键）、触发 on_turn_committed 钩子。
     """
     if director is None:
         director = Director(
@@ -67,6 +242,21 @@ async def run_narrated_turn(
     directive = await director.run_turn(
         world_id, action, turn_num=turn_num
     )
+    # 终局分支：Director 交卷带 is_ending=True，直接进入收尾管线，不再走常规演播/钩子
+    if directive.is_ending:
+        if memory is None:
+            raise EndingError("终局收尾需要 memory 后端（当前未配置）")
+        ended = await run_ending_wrapup(
+            storage, world_id, directive,
+            memory=memory, llm=llm, narrator=narrator, worker=worker,
+        )
+        return NarratedTurn(
+            directive=directive,
+            narration=ended.narration,
+            ended=True,
+            ending_type=ended.ending_type,
+            recap=ended.recap,
+        )
     if recent_limit is None:
         recent_limit = int(get_settings().get("context.assembler.recent_turns", 10))
     # 状态：近程历史剔除本轮——本轮手记已随契约下发，避免 Narrator 重复读到"守秘人：手记"

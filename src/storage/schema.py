@@ -98,4 +98,10 @@ MIGRATIONS: list[list[str]] = [
     [
         "ALTER TABLE entities ADD COLUMN occupation TEXT NOT NULL DEFAULT ''",
     ],
+    # 迁移 6：world_state 增加 status 生命周期状态列（ACTIVE 活跃 / ARCHIVED 已结团归档）
+    # 归档世界只读、后台固化 Worker 轮询跳过；与 game_phase（剧情阶段）语义分离，严禁复用
+    [
+        "ALTER TABLE world_state ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'",
+        "CREATE INDEX IF NOT EXISTS idx_world_status ON world_state(status)",
+    ],
 ]

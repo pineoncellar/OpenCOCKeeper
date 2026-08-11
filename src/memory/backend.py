@@ -42,6 +42,15 @@ class MemoryBackend(Protocol):
         location: Optional[str] = None,
     ) -> None: ...
 
+    def add_ending_snapshot(
+        self,
+        world_id: str,
+        *,
+        text: str,
+        ending_type: str,
+        turn_num: int,
+    ) -> None: ...
+
     def search_topk(
         self,
         query: str,
@@ -240,6 +249,40 @@ class Mem0Memory:
             except Exception as e:  # noqa: BLE001
                 logger.error("写入 Mem0 失败(world=%s turn=%s): %s", world_id, turn, e)
                 raise
+
+    # ---- 协议实现：终局快照 ----
+
+    def add_ending_snapshot(
+        self,
+        world_id: str,
+        *,
+        text: str,
+        ending_type: str,
+        turn_num: int,
+    ) -> None:
+        """写入一条终局快照记忆：user_id=world_id，metadata 带 turn_num / ending_type / tag。
+
+        与原子事件同写路径（infer=False 跳过 LLM 二次提取），但额外携带结局类型
+        与 __ENDING__ 标记，使"结局/后日谈"可被语义检索区分定位。
+        """
+        memory = self._mem0()
+        metadata: Dict[str, Any] = {
+            "turn_num": int(turn_num),
+            "ending_type": str(ending_type),
+            "tag": "__ENDING__",
+        }
+        try:
+            memory.add(
+                [{"role": "user", "content": str(text)}],
+                user_id=world_id,
+                metadata=metadata,
+                infer=False,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                "写入终局快照失败(world=%s turn=%s): %s", world_id, turn_num, e
+            )
+            raise
 
     # ---- 协议实现：召回 ----
 

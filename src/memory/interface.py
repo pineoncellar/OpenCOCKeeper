@@ -23,6 +23,21 @@ from ..storage.storage import Storage
 
 logger = get_logger(__name__)
 
+# 终局快照标记：写入 RAG 的核心锚点，供检索"结局/后日谈"命中
+ENDING_TAG = "__ENDING__"
+
+
+def compose_ending_snapshot(recap: str, ending_type: str, narration: str) -> str:
+    """拼装终局快照正文：最终全盘 Recap + 结局类型 + 终局演播文本三合一。
+
+    仅存这一条核心锚点，避免终局内容散落成多条碎片记忆。
+    """
+    return (
+        f"【{ENDING_TAG} · {ending_type}】\n"
+        f"{recap or ''}\n\n"
+        f"{narration or ''}"
+    )
+
 # 事件提炼 prompt：要求 LLM 输出 JSON 数组，每条为一句完整的话
 _EVENT_EXTRACT_PROMPT = (
     "你是 COC 跑团守秘人的记忆提炼器。下面给出最近几轮的对话与状态记录，"
@@ -236,6 +251,33 @@ class Memory:
             location=location,
         )
         return len(items)
+
+    # ---- 核心接口：终局快照 ----
+
+    async def write_ending_snapshot(
+        self,
+        world_id: str,
+        *,
+        recap: str,
+        ending_type: str,
+        narration: str,
+        turn_num: int,
+    ) -> int:
+        """把终局快照（最终全盘 Recap + 结局类型 + 终局演播文本）写入 RAG 作为核心锚点。
+
+        供终局收尾管线在归档前落一条 __ENDING__ 标记记忆，使"结局/后日谈"可被
+        query_memory 召回；绑定终局轮次 turn_num，metadata 带 ending_type 便于区分。
+        失败抛 MemoryOperationError（无静默降级），由收尾管线转 EndingError 拦截归档。
+        """
+        self._require_world(world_id)
+        text = compose_ending_snapshot(recap, ending_type, narration)
+        self._backend.add_ending_snapshot(
+            world_id,
+            text=text,
+            ending_type=str(ending_type).upper(),
+            turn_num=int(turn_num),
+        )
+        return 1
 
     # ---- 核心接口：主 Agent 检索 ----
 

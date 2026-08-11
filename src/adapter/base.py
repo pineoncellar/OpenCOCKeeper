@@ -105,13 +105,29 @@ class AbstractAdapter(ABC):
     # ---- 内部路由：玩家输入 -> 回合管线 ----
 
     async def _handle_player_input(self, text: str, msg: InboundMessage) -> OutboundMessage:
-        """玩家输入 -> 串行管线（裁决 -> 演播 -> 落库），返回玩家视角叙事。"""
+        """玩家输入 -> 串行管线（裁决 -> 演播 -> 落库），返回玩家视角叙事。
+
+        归档（已结团）世界为只读——拒绝继续游玩，返回提示不触发管线；
+        管线判定终局（is_ending=True）时返回终局结算卡片并重置会话世界指针。
+        """
         if not text.strip():
             return OutboundMessage.system_msg("输入不能为空", level="warn", session_id=msg.session_id)
         world_id = msg.world_id or self._world_id  # 状态：消息已带世界优先，否则取会话当前世界
         if not world_id:
             return OutboundMessage.system_msg(
                 "当前未选择世界。请先用 /world start <模组名> 开始游戏，或 /world load <世界ID> 载入。",
+                level="warn", session_id=msg.session_id,
+            )
+        world = self.storage.get_world(world_id)
+        if world is None:
+            return OutboundMessage.system_msg(
+                f"当前世界不存在（可能已被删除）: {world_id}",
+                level="warn", session_id=msg.session_id,
+            )
+        if world.get("status") == "ARCHIVED":  # 状态：归档世界只读拦截
+            return OutboundMessage.system_msg(
+                f"世界已归档（结团），只读不可继续游玩。"
+                f"载入其他世界或 /world start 开启新游戏。",
                 level="warn", session_id=msg.session_id,
             )
         try:
@@ -123,8 +139,13 @@ class AbstractAdapter(ABC):
                 world_id,
                 text.strip(),
                 llm=self.llm,
+                memory=self.memory,
+                worker=self.worker,
                 on_turn_committed=self._on_turn_committed,
             )
+            if turn.ended:  # 状态：终局轮——渲染结算卡片并退回主菜单
+                self._world_id = None
+                return self._render_ending_card(world_id, turn, msg.session_id)
             return OutboundMessage.narrative(
                 turn.narration, session_id=msg.session_id, world_id=world_id,
             )
@@ -188,7 +209,8 @@ class AbstractAdapter(ABC):
             for w in worlds:
                 mark = "  <- 当前" if w["world_id"] == self._world_id else ""
                 mod = w.get("module_name") or "-"
-                lines.append(f"  {w['world_id']}  [{mod}]{mark}")
+                archived = "  [已归档]" if w.get("status") == "ARCHIVED" else ""
+                lines.append(f"  {w['world_id']}  [{mod}]{archived}{mark}")
             lines.append("使用 /world load <世界ID> 载入。")
             return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
@@ -258,6 +280,9 @@ class AbstractAdapter(ABC):
             self._world_id = world_id  # 状态：会话载入目标世界
             return OutboundMessage.system_msg(f"已载入世界: {world_id}", session_id=sid)
 
+        if sub == "archive":
+            return await self._handle_archive_cmd(sid)
+
         if sub == "delete":
             world_id = parts[2].strip() if len(parts) > 2 else ""
             if not world_id or self.storage.get_world(world_id) is None:
@@ -289,6 +314,7 @@ class AbstractAdapter(ABC):
             "  /world list               - 列出所有世界\n"
             "  /world start <模组名>     - 创建新世界并绑定模组\n"
             "  /world load <世界ID>      - 载入已有世界\n"
+            "  /world archive            - 主动结团（BD 软结局）并归档当前世界\n"
             "  /world delete <世界ID>    - 删除世界（级联 + RAG 清理）",
             level="warn", session_id=sid,
         )
@@ -308,6 +334,72 @@ class AbstractAdapter(ABC):
         world_id = make_world_id(seq, slug)
         self.storage.ensure_world(world_id, module_name=full_name)
         return world_id
+
+    # ============================================
+    # 结团归档命令
+    # ============================================
+
+    async def _handle_archive_cmd(self, sid: str) -> OutboundMessage:
+        """处理 /world archive — 主动结团（BD 软结局）并归档当前世界。
+
+        构造 is_ending=True / ending_type=BD 的终局契约进入收尾管线：
+        终局演播 -> 全盘固化 -> __ENDING__ 快照 -> status=ARCHIVED；
+        无静默降级——任一步失败抛 EndingError，世界保持活跃可修复后重试；
+        成功后重置会话世界指针并渲染终局结算卡片。
+        """
+        world_id = self._world_id
+        if not world_id:
+            return OutboundMessage.system_msg(
+                "当前未选择世界。先 /world start 或 /world load。", level="warn", session_id=sid,
+            )
+        world = self.storage.get_world(world_id)
+        if world is None:
+            return OutboundMessage.system_msg(
+                f"当前世界不存在（可能已被删除）: {world_id}", level="warn", session_id=sid,
+            )
+        if world.get("status") == "ARCHIVED":
+            return OutboundMessage.system_msg(
+                f"世界已归档（结团）: {world_id}，只读不可再结团。", level="warn", session_id=sid,
+            )
+        if self.memory is None:
+            return OutboundMessage.system_msg(
+                "记忆后端未配置，无法执行终局固化。", level="warn", session_id=sid,
+            )
+        try:
+            from src.agent.pipeline import prepare_manual_ending, run_ending_wrapup
+
+            directive = prepare_manual_ending(
+                self.storage, world_id, ending_type="BD",
+            )
+            ended = await run_ending_wrapup(
+                self.storage, world_id, directive,
+                memory=self.memory, llm=self.llm, worker=self.worker,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"主动结团失败 world={world_id}: {e}", exc_info=True)
+            return OutboundMessage.system_msg(
+                f"结团失败: {type(e).__name__}: {e}\n"
+                f"世界保持活跃，可修复后重试 /world archive。",
+                level="error", session_id=sid,
+            )
+        self._world_id = None  # 状态：结团归档后会话退回主菜单
+        return self._render_ending_card(world_id, ended, sid)
+
+    def _render_ending_card(self, world_id: str, ended, sid: str) -> OutboundMessage:
+        """终局结算卡片：结局标签 + 终局演播文本 + 归档提示（CLI/Web 通用渲染）。"""
+        from src.agent.narrator import ending_label
+
+        header = (
+            "========== 结 团 战 报 ==========\n"
+            f"世界: {world_id}\n"
+            f"结局: {ended.ending_type}（{ending_label(ended.ending_type)}）\n"
+            "================================"
+        )
+        footer = "本次冒险已归档，返回主菜单。输入 /world start <模组名> 开启新旅程。"
+        return OutboundMessage.narrative(
+            f"{header}\n\n{ended.narration}\n\n{footer}",
+            session_id=sid, world_id=world_id,
+        )
 
     # ============================================
     # 状态查询命令
@@ -359,6 +451,11 @@ class AbstractAdapter(ABC):
         if not world_id:
             return OutboundMessage.system_msg(
                 "当前未选择世界。先 /world start 或 /world load。", level="warn", session_id=sid,
+            )
+        world = self.storage.get_world(world_id)
+        if world is not None and world.get("status") == "ARCHIVED":
+            return OutboundMessage.system_msg(
+                "世界已归档（结团），只读禁止回档。", level="warn", session_id=sid,
             )
         if self.memory is None:
             return OutboundMessage.system_msg(
@@ -598,6 +695,7 @@ _HELP_TEXT = (
     "  /world list                - 列出所有世界\n"
     "  /world start <模组名> [角色名...] - 创建世界并绑定模组，可选绑定种子角色\n"
     "  /world load <世界ID>       - 载入已有世界\n"
+    "  /world archive             - 主动结团（BD 软结局）并归档当前世界\n"
     "  /world delete <世界ID>     - 删除世界（级联 + RAG 清理）\n"
     "  /module list               - 列出可绑定的模组文件\n"
     "======= 角色卡 =======\n"

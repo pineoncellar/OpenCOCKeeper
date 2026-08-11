@@ -191,11 +191,18 @@ class ConsolidationWorker:
     # ============================================
 
     async def _process_pending(self) -> None:
-        """扫描目标世界，对每个世界按阈值决定是否固化。"""
+        """扫描目标世界，对每个世界按阈值决定是否固化。
+
+        缺省只扫描 status=ACTIVE 的世界——归档（已结团）世界静默跳过，
+        不再触发普通轮询固化，避免对只读世界做无效空扫。
+        """
         if self._worlds is not None:
             world_ids = list(self._worlds)
         else:
-            world_ids = [w["world_id"] for w in self._storage.list_worlds()]
+            world_ids = [
+                w["world_id"]
+                for w in self._storage.list_worlds(status="ACTIVE")
+            ]
         if not world_ids:
             return  # 状态：无活跃世界，跳过本轮
         # 状态：不同世界并发固化，同一世界内部由 per-world 锁串行

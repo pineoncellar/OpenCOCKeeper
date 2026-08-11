@@ -89,3 +89,12 @@ class OpeningError(OpenCOCKeeperError):
     无静默降级——报错即停，修复后重试；副作用后置保证 LLM 失败时零残留、可干净重试，
     不遗留半开场状态（Turn 0 半写 / 记忆重复植入）。
     """
+
+
+class EndingError(OpenCOCKeeperError):
+    """终局收尾失败：终局演播 / 终局叙事落库 / 全盘固化 / 终局快照 / 世界归档任一步失败。
+
+    无静默降级——报错即中断停运，且世界状态保持 ACTIVE 不归档，保证状态绝对一致，
+    用户修复后重试；终局轮次本身已随 Director 落库，重试走 /world archive 复用同一轮
+    不重复落轮。
+    """

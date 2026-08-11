@@ -19,6 +19,7 @@ from src.core.config import get_settings
 from src.agent.directive import (
     NarrativeDirective,
     PRESENT_DIRECTIVE_NAME,
+    extract_ending,
     extract_narrative_directive,
 )
 from src.agent.loop import build_default_runner, run_tool_loop
@@ -114,24 +115,31 @@ class Director:
                 result.stop_call["arguments"],
                 fallback=(result.final.text or "").strip(),
             )
+            # 状态：终局信号（is_ending / ending_type）为模型权威的叙事字段，提取并归一化
+            is_ending, ending_type = extract_ending(result.stop_call["arguments"])
             converged = True
         elif result.final.text:
             # 状态：模型直接文本收敛（未调收尾工具），以最终文本为导演手记降级
             narrative = result.final.text.strip()
             converged = False
+            is_ending, ending_type = False, ""
         else:
             raise AgentLoopError("主 Agent 未产出任何决策文本")
         # 状态：统一落库（空 diff 也写轮，保证近程对话连续），state_diff 为程序权威
+        context_data: dict = {
+            "user": action,
+            "assistant": narrative,
+            "checks": runner.collected_checks,
+        }
+        if is_ending:  # 状态：终局轮持久化终局字段，供收尾管线与审计回查
+            context_data["is_ending"] = True
+            context_data["ending_type"] = ending_type
         record = apply_turn_change(
             self._storage,
             world_id,
             turn,
             diffs=runner.collected_diffs,
-            context_data={
-                "user": action,
-                "assistant": narrative,
-                "checks": runner.collected_checks,
-            },
+            context_data=context_data,
         )
         return NarrativeDirective(
             state_changes=record["state_diff"],
@@ -139,4 +147,6 @@ class Director:
             turn_num=turn,
             converged=converged,
             checks=runner.collected_checks,
+            is_ending=is_ending,
+            ending_type=ending_type,
         )

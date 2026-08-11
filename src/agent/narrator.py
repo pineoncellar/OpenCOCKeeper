@@ -64,6 +64,49 @@ NARRATOR_SYSTEM = (
 
 
 # ====================================================================
+# 终局演播 System 指令（Narrator 收束终局专用，覆盖常规"交还主动权"引导）
+# ====================================================================
+
+NARRATOR_ENDING_SYSTEM = (
+    "你是《克苏鲁的呼唤》(CoC 7th) 的守秘人（KP）兼终局文学演播员。"
+    "你的唯一任务：把主 Agent（Director）传来的【终局叙事决策大纲】与【结局类型】"
+    "转化为一段收束本次跑团的最终叙事——带闭幕感与后日谈色彩的电影式落幕。"
+    "你不参与规则判定或结局走向决策——那是主 Agent 的职责；"
+    "结局类型与大纲裁定的物理事实即为绝对真相，禁止改写或臆造。"
+    "\n\n【演播契约与绝对边界】"
+    "\n1. 绝对忠实大纲：大纲裁决的事实（检定成败、伤害、环境改变）须被精准呈现，"
+    "严禁擅自追加大纲未提及的剧情真相，或替玩家做出决定。"
+    "\n2. 检定结果透明化：本轮涉及的检定须把掷骰数值原样呈现给玩家"
+    "（'检定名称：掷骰值/阈值 成功等级标签'），数值与等级以【检定结果权威区】为准，"
+    "禁止改写、遗漏或臆造；其余文本不得出现检定/规则等破坏沉浸感的元语言。"
+    "\n\n【终局演播基调】"
+    "\n1. 电影闭幕感：从当前场景逐步拉远镜头，收束在本次冒险的最后画面；"
+    "情绪与结局类型相称——HD（完美结局）带释然与救赎、TD（真实结局）带缺憾与余韵、"
+    "BD（坏结局）带压抑与沉痛。"
+    "\n2. 后日谈色彩：结尾补一段克制的'之后的日子'式余韵——幸存者的去向、"
+    "地点与事件的回响，留白自然，不堆砌细节。"
+    "\n\n【输出格式约束】"
+    "\n第一行仍以场景报幕开头：[场景/位置 - 概括区域 - 当前时间/天气]"
+    "（时间/天气基于大纲已有的物理事实，未知用'不明'）。"
+    "正文 1~3 个自然段、250~400 字，以终局收束结尾——这是本次冒险的最后一幕，"
+    "不要向玩家抛出新的行动抉择。"
+)
+
+
+# 结局类型标签：供终局演播与终局结算卡片展示
+_ENDING_LABELS = {
+    "HD": "完美结局 (Happy End)",
+    "TD": "真实结局 (True End)",
+    "BD": "坏结局 (Bad End)",
+}
+
+
+def ending_label(ending_type: str) -> str:
+    """结局类型 -> 人类可读标签；未知类型原样返回。"""
+    return _ENDING_LABELS.get(str(ending_type).strip().upper(), ending_type)
+
+
+# ====================================================================
 # 输入渲染辅助（纯函数，Narrator 自足不依赖装配器）
 # ====================================================================
 
@@ -122,23 +165,28 @@ def build_narrator_messages(
     action: Optional[str] = None,
     recent_text: Optional[str] = None,
     checks_text: Optional[str] = None,
+    ending: bool = False,
 ) -> List[dict]:
     """构造 Narrator 的 system + user 消息，可直接喂 llm。
 
     directive 为 NarrativeDirective（手记 + checks 权威区）；
     recent_text 已给则跳过内部渲染（调用方复用装配器产物时用）；
-    checks_text 已给则跳过内部渲染；action 为本轮玩家行动。
+    checks_text 已给则跳过内部渲染；action 为本轮玩家行动；
+    ending=True 时改用 NARRATOR_ENDING_SYSTEM 终局演播契约，并注入【结局类型】。
     """
     handoff = (directive.narrative_directive or "").strip() or "（本轮无手记）"
     if recent_text is None:
         recent_text = _render_recent(recent)
     if checks_text is None:
         checks_text = _format_checks(directive.checks or [])
+    system = NARRATOR_ENDING_SYSTEM if ending else NARRATOR_SYSTEM
     user = [f"【叙事决策大纲】\n{handoff}", f"【检定结果权威区】\n{checks_text}", f"【近程对话历史】\n{recent_text}"]
+    if ending and getattr(directive, "ending_type", ""):
+        user.append(f"【结局类型】\n{ending_label(directive.ending_type)}")
     if action:
         user.append(f"【本轮玩家行动】\n{action}")
     return [
-        {"role": "system", "content": NARRATOR_SYSTEM},
+        {"role": "system", "content": system},
         {"role": "user", "content": "\n\n".join(user)},
     ]
 
@@ -188,14 +236,23 @@ class Narrator:
         recent: Optional[List[dict]] = None,
         action: Optional[str] = None,
         recent_text: Optional[str] = None,
+        ending: Optional[bool] = None,
     ) -> str:
         """把一份《叙事决策大纲》翻译成玩家叙事文本。
 
         recent 为近程轮次记录（通常由管线从 storage 读取，不含本轮）；
-        recent_text 已给则直接使用；LLM 失败或产出空文本抛 NarratorError。
+        recent_text 已给则直接使用；ending 缺省自动取 directive.is_ending，
+        为 True 时走 NARRATOR_ENDING_SYSTEM 终局演播（闭幕感 + 后日谈，不交还主动权）；
+        LLM 失败或产出空文本抛 NarratorError。
         """
+        if ending is None:
+            ending = bool(getattr(directive, "is_ending", False))
         messages = build_narrator_messages(
-            directive, recent=recent, action=action, recent_text=recent_text
+            directive,
+            recent=recent,
+            action=action,
+            recent_text=recent_text,
+            ending=ending,
         )
         llm = self._resolve_llm()
         result = await llm(self._tier, messages, temperature=self._temperature)

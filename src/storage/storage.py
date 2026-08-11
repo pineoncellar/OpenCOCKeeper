@@ -31,6 +31,11 @@ _TEXT_COLUMNS = frozenset({"type", "name", "occupation"})
 _WORLD_JSON_FIELDS = frozenset({"player_ids", "global_flags"})
 _WORLD_TEXT_FIELDS = frozenset({"game_phase", "global_recap"})
 
+# 世界生命周期状态：ACTIVE 可游玩 / ARCHIVED 已结团归档（只读、Worker 跳过）
+WORLD_STATUS_ACTIVE = "ACTIVE"
+WORLD_STATUS_ARCHIVED = "ARCHIVED"
+WORLD_STATUSES = frozenset({WORLD_STATUS_ACTIVE, WORLD_STATUS_ARCHIVED})
+
 
 # ============================================
 # 行解码
@@ -111,6 +116,7 @@ class Storage:
         game_phase: str = "EXPLORATION",
         global_flags: Optional[Dict[str, Any]] = None,
         global_recap: str = "",
+        status: str = WORLD_STATUS_ACTIVE,
     ) -> dict:
         """确保世界存在（不存在则创建），返回当前世界状态。
 
@@ -122,11 +128,13 @@ class Storage:
         """
         from ..module.loader import resolve as resolve_module
         resolve_module(module_name)  # 强制必填：非空 + 白名单 + 文件存在  # 状态：绑定校验
+        if status not in WORLD_STATUSES:
+            raise ValueError(f"非法世界状态: {status}（可选 {sorted(WORLD_STATUSES)}）")
         with self._db.transaction() as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO world_state "
-                "(world_id, player_ids, game_phase, global_flags, global_recap, module_name) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(world_id, player_ids, game_phase, global_flags, global_recap, module_name, status) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     world_id,
                     cjson.dumps(player_ids or []),
@@ -134,6 +142,7 @@ class Storage:
                     cjson.dumps(global_flags or {}),
                     global_recap,
                     module_name,
+                    status,
                 ),
             )
         world = self.get_world(world_id)
@@ -150,12 +159,19 @@ class Storage:
             ).fetchone()
         return _decode_world(row) if row else None
 
-    def list_worlds(self) -> List[dict]:
-        """列出全部世界（按 world_id 排序）。"""
+    def list_worlds(self, *, status: Optional[str] = None) -> List[dict]:
+        """列出世界（按 world_id 排序）；status 非空时只返回该状态的世界。
+
+        供 Worker 扫描只处理 ACTIVE 世界、归档世界静默跳过。
+        """
+        query = "SELECT * FROM world_state"
+        params: List[Any] = []
+        if status is not None:
+            query += " WHERE status = ?"
+            params.append(status)
+        query += " ORDER BY world_id"
         with self._db.read() as conn:
-            rows = conn.execute(
-                "SELECT * FROM world_state ORDER BY world_id"
-            ).fetchall()
+            rows = conn.execute(query, params).fetchall()
         return [_decode_world(r) for r in rows]
 
     def update_world(
@@ -167,12 +183,14 @@ class Storage:
         game_phase: Optional[str] = None,
         global_flags: Optional[Dict[str, Any]] = None,
         global_recap: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> dict:
         """部分更新世界状态；传入 None 的字段保持不变。
 
         module_name 传值即换绑模组（须是 data/modules 下存在的文件），
         传空串可解绑；global_recap 是宏观记忆固化写回的全局前情提要，
-        传空串可主动清空，传 None 表示本次不改动。
+        传空串可主动清空，传 None 表示本次不改动；status 传值须为
+        ACTIVE/ARCHIVED 之一，终局收尾据此把世界置为归档。
         """
         self._require_world(world_id)
         from ..module.loader import resolve as resolve_module
@@ -196,6 +214,11 @@ class Storage:
         if global_recap is not None:
             sets.append("global_recap = ?")
             params.append(global_recap)
+        if status is not None:
+            if status not in WORLD_STATUSES:
+                raise ValueError(f"非法世界状态: {status}（可选 {sorted(WORLD_STATUSES)}）")
+            sets.append("status = ?")
+            params.append(status)
         if sets:
             params.append(world_id)
             with self._db.transaction() as conn:

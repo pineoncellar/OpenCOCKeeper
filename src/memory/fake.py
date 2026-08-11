@@ -19,6 +19,7 @@ from .interface import (
     _first_location,
     _merge_query_hits,
     _render_turn,
+    compose_ending_snapshot,
 )
 
 
@@ -66,6 +67,28 @@ class FakeMemoryBackend:
                 }
             )
         self.add_calls += 1
+
+    def add_ending_snapshot(
+        self,
+        world_id: str,
+        *,
+        text: str,
+        ending_type: str,
+        turn_num: int,
+    ) -> None:
+        """写入一条终局快照到世界桶，额外记录 ending_type 与 __ENDING__ 标记。"""
+        bucket = self._store.setdefault(world_id, [])
+        self._seq += 1
+        bucket.append(
+            {
+                "id": f"mem_{self._seq}",
+                "text": str(text),
+                "turn_num": int(turn_num),
+                "location": None,
+                "ending_type": str(ending_type),
+                "tag": "__ENDING__",
+            }
+        )
 
     def search_topk(
         self,
@@ -224,6 +247,26 @@ class FakeMemory:
             location=location,
         )
         return len(items)
+
+    async def write_ending_snapshot(
+        self,
+        world_id: str,
+        *,
+        recap: str,
+        ending_type: str,
+        narration: str,
+        turn_num: int,
+    ) -> int:
+        """与 Memory.write_ending_snapshot 同签名：终局快照直写内存后端（不调 LLM）。"""
+        self._require_world(world_id)
+        text = compose_ending_snapshot(recap, ending_type, narration)
+        self._backend.add_ending_snapshot(
+            world_id,
+            text=text,
+            ending_type=str(ending_type).upper(),
+            turn_num=int(turn_num),
+        )
+        return 1
 
     async def query_memory(
         self,
