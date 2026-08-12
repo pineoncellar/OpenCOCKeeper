@@ -270,6 +270,8 @@ class AbstractAdapter(ABC):
             lines.append("直接输入行动文本开始探索。")
             return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
+
+
         if sub == "load":
             world_id = parts[2].strip() if len(parts) > 2 else ""
             if not world_id or self.storage.get_world(world_id) is None:
@@ -278,7 +280,8 @@ class AbstractAdapter(ABC):
                     level="warn", session_id=sid,
                 )
             self._world_id = world_id  # 状态：会话载入目标世界
-            return OutboundMessage.system_msg(f"已载入世界: {world_id}", session_id=sid)
+            # 状态：载入后附上回忆块（最新程序回复 + 最近记忆），帮玩家接续存档
+            return await self._build_world_recall(world_id, sid)
 
         if sub == "archive":
             return await self._handle_archive_cmd(sid)
@@ -334,6 +337,46 @@ class AbstractAdapter(ABC):
         world_id = make_world_id(seq, slug)
         self.storage.ensure_world(world_id, module_name=full_name)
         return world_id
+
+    async def _build_world_recall(self, world_id: str, sid: str) -> OutboundMessage:
+        """载入世界时的回忆块：最新程序回复 + 最近记忆，帮玩家接续上次存档。
+
+        输出两部分（有则显示，无则跳过）：
+        ① 最新程序回复——recent_turns 最近一轮的玩家视角叙事（assistant，缺省用手记）；
+        ② 最近记忆——memory.search 语义召回 top 3（无记忆后端则跳过）。
+        回忆是附加信息，任一步失败都不影响载入本身。
+        """
+        lines = [f"已载入世界: {world_id}"]
+        has_content = False
+        # ① 最新程序回复
+        recent = self.storage.get_recent_turns(world_id, limit=1)
+        if recent:
+            cd = recent[-1].get("context_data") or {}
+            narration = (cd.get("assistant") or cd.get("directive") or "").strip()
+            if narration:
+                has_content = True
+                lines += ["", "【上次进展】", narration]
+        # ② 最近记忆（语义召回；无记忆后端跳过）
+        if self.memory is not None:
+            try:
+                hits = await self.memory.search(
+                    "最近发生了什么事件、当前处境、已掌握的线索与下一步目标",
+                    world_id,
+                    top_k=3,
+                )
+            except Exception as e:  # noqa: BLE001  回忆失败不影响载入
+                logger.debug(f"载入世界回忆召回失败 world={world_id}: {e}")
+                hits = []
+            if hits:
+                has_content = True
+                lines.append("")
+                lines.append("【近期记忆】")
+                for h in hits:
+                    turn = f"t{h.turn_num}" if getattr(h, "turn_num", None) else "?"
+                    lines.append(f"  [{turn}] {h.text}")
+        if not has_content:
+            lines.append("（该世界暂无历史记录，直接输入行动文本开始探索）")
+        return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
     # ============================================
     # 结团归档命令
