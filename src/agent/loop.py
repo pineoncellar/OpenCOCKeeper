@@ -17,6 +17,14 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from src.core.log import get_logger, get_llm_trace_logger
 from src.llm import LLMResult
+from src.webui.trace_engine import (
+    get_trace_bus,
+    make_converge_event,
+    make_llm_request_event,
+    make_llm_response_event,
+    make_tool_call_event,
+    make_tool_result_event,
+)
 
 logger = get_logger(__name__)
 # 独立 LLM 交互 trace logger：工具调用请求/结果随完整 prompt 一并落 llm-<date>.log
@@ -107,15 +115,23 @@ class ToolRunner:
             "工具调用 name=%s\nargs=%s",
             name, json.dumps(arguments, ensure_ascii=False, indent=2),
         )
+        # 状态：发布 tool_call 事件到 TraceBus，供 WebUI SSE 实时消费
+        w_id = str(inject.get("world_id", ""))
+        t_num = int(inject.get("turn_num", 0))
+        bus = get_trace_bus()
+        await bus.publish(make_tool_call_event(name, arguments, world_id=w_id, turn_num=t_num))
         try:
             result = fn(**merged)
             if inspect.isawaitable(result):  # 状态：异步工具 await
                 result = await result
         except Exception as e:  # noqa: BLE001  单工具失败不阻断闭环，回填错误镜像让模型自纠
             logger.warning(f"工具执行失败 name={name}: {e}")
+            await bus.publish(make_tool_result_event(name, {"ok": False, "error": str(e)}, world_id=w_id, turn_num=t_num))
             return {"ok": False, "error": str(e)}
         if not isinstance(result, dict):
             result = {"ok": True, "result": result}
+        # 状态：发布 tool_result 事件到 TraceBus
+        await bus.publish(make_tool_result_event(name, result, world_id=w_id, turn_num=t_num))
         # 状态：抽出 state_diff，落库/回档数据不进模型上下文
         diff = result.pop("state_diff", None)
         if diff:
@@ -374,7 +390,18 @@ async def run_tool_loop(
             current = _append_converge_hint(current)
             hinted = True
         logger.debug("工具闭环 LLM 请求 第 %d/%d 轮 tier=%s", i, max_iterations, tier)
+        # 状态：发布 llm_request 事件到 TraceBus（含完整 messages 与 tools 清单）
+        bus = get_trace_bus()
+        await bus.publish(make_llm_request_event(
+            tier, current, tools,
+            world_id=world_id, turn_num=turn_num,
+        ))
         result = await llm(tier, current, tools=tools, temperature=temperature)
+        # 状态：发布 llm_response 事件到 TraceBus
+        await bus.publish(make_llm_response_event(
+            result, tier,
+            world_id=world_id, turn_num=turn_num,
+        ))
         if not result.is_ok:
             return ToolLoopResult(
                 final=result, tool_calls=executed, iterations=i, converged=False
@@ -385,6 +412,10 @@ async def run_tool_loop(
                 "工具闭环收敛 world=%s turn=%s 轮数=%d 工具调用=%d",
                 world_id, turn_num, i, len(executed),
             )
+            await bus.publish(make_converge_event(
+                "模型收敛，不再调用工具", len(executed),
+                world_id=world_id, turn_num=turn_num,
+            ))
             return ToolLoopResult(
                 final=result, tool_calls=executed, iterations=i, converged=True
             )
@@ -400,6 +431,10 @@ async def run_tool_loop(
                     "工具闭环收尾工具命中 world=%s turn=%s name=%s 轮数=%d 工具调用=%d",
                     world_id, turn_num, stop["name"], i, len(executed),
                 )
+                await bus.publish(make_converge_event(
+                    f"收尾工具 {stop['name']} 命中", len(executed),
+                    world_id=world_id, turn_num=turn_num,
+                ))
                 return ToolLoopResult(
                     final=result,
                     tool_calls=executed,

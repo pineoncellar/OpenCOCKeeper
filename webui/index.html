@@ -1,0 +1,94 @@
+/*- encoding: utf-8 -*/
+/*
+@File     :   index.html
+@Desc     :   WebUI 主入口 SPA — Trace 调试面板 + 后续 Tab 扩展
+@Note     :   纯 JS 无框架依赖，app.js 管理 Tab 路由与状态
+*/
+
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenCOCKeeper WebUI</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <!-- 顶栏 -->
+    <header class="topbar">
+        <div class="topbar-inner">
+            <h1 class="topbar-title">OpenCOCKeeper <span class="topbar-subtitle">WebUI</span></h1>
+            <nav class="topbar-nav" id="tab-nav">
+                <button class="tab-btn active" data-tab="trace">Trace</button>
+                <button class="tab-btn" data-tab="worlds" disabled title="Phase 2">Worlds</button>
+                <button class="tab-btn" data-tab="config" disabled title="Phase 3">Config</button>
+                <button class="tab-btn" data-tab="game" disabled title="Phase 4">Game</button>
+            </nav>
+            <span class="conn-status" id="conn-status">● 连接中</span>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="main" id="main-content">
+        <!-- Trace 面板 -->
+        <section class="tab-panel active" id="panel-trace">
+            <div class="trace-layout">
+                <!-- 左侧：Turn 时间线 -->
+                <aside class="trace-timeline" id="trace-timeline">
+                    <h3 class="panel-title">Turns</h3>
+                    <div class="timeline-list" id="timeline-list"></div>
+                </aside>
+                <!-- 中间：工具调用链 -->
+                <div class="trace-detail" id="trace-detail">
+                    <div class="trace-empty" id="trace-empty">
+                        <p>等待 Trace 事件...</p>
+                        <p class="trace-hint">启动 CLI 跑一轮后，此处将实时显示主 Agent 的工具调用链与双 Agent 对比。</p>
+                    </div>
+                    <div class="trace-chain" id="trace-chain" style="display:none"></div>
+                    <!-- 双 Agent 对比 -->
+                    <div class="trace-dual" id="trace-dual" style="display:none">
+                        <h3 class="panel-title">双 Agent 对比</h3>
+                        <div class="dual-container">
+                            <div class="dual-pane dual-directive">
+                                <h4>Director 手记</h4>
+                                <pre class="dual-content" id="directive-content"></pre>
+                            </div>
+                            <div class="dual-pane dual-narration">
+                                <h4>Narrator 演播</h4>
+                                <div class="dual-content" id="narration-content"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Phase 2 占位：Worlds 面板 -->
+        <section class="tab-panel" id="panel-worlds">
+            <p class="placeholder">Worlds 面板 — Phase 2 实现</p>
+        </section>
+
+        <!-- Phase 3 占位：Config 面板 -->
+        <section class="tab-panel" id="panel-config">
+            <p class="placeholder">Config 面板 — Phase 3 实现</p>
+        </section>
+
+        <!-- Phase 4 占位：Game 面板 -->
+        <section class="tab-panel" id="panel-game">
+            <p class="placeholder">Game 面板 — Phase 4 实现</p>
+        </section>
+    </main>
+
+    <!-- 底部状态栏 -->
+    <footer class="statusbar" id="statusbar">
+        <span class="statusbar-item" id="status-events">Events: 0</span>
+        <span class="statusbar-item" id="status-turns">Turns: 0</span>
+        <span class="statusbar-item" id="status-tools">Tools: 0</span>
+        <span class="statusbar-item statusbar-right" id="status-time"></span>
+    </footer>
+
+    <script src="/js/utils/sse.js"></script>
+    <script src="/js/components/trace_viewer.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>
