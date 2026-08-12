@@ -17,6 +17,7 @@ from src.adapter.cli import CliAdapter
 from src.adapter.protocol import InboundMessage, MessageType, OutboundMessage
 from src.core.ids import make_world_id
 from src.memory.fake import FakeMemory
+from src.memory.interface import MemoryHit
 from src.memory.worker import ConsolidationWorker
 
 # 与 conftest 中临时模组目录预置的文件名保持一致（可被绑定校验通过）
@@ -144,6 +145,58 @@ async def test_world_load_unknown(storage, fake_llm):
     )
     assert out.type == MessageType.SYSTEM_MSG
     assert out.data["level"] == "warn"
+
+
+async def test_world_load_empty_recall(storage, world_id, fake_llm):
+    """/world load 载入无历史世界：提示暂无历史记录，不抛异常。"""
+    adapter = CliAdapter(storage=storage, llm=fake_llm.call)
+    out = await adapter.handle(
+        InboundMessage.system_cmd(f"/world load {world_id}", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert "已载入世界" in out.text
+    assert "暂无历史记录" in out.text
+    assert adapter._world_id == world_id
+
+
+async def test_world_load_shows_last_reply(storage, world_id, fake_llm):
+    """/world load 显示最新程序回复（最近一轮的玩家视角叙事），帮玩家接续存档。"""
+    storage.commit_turn(
+        world_id, 1,
+        context_data={
+            "user": "调查员叩响门环",
+            "assistant": "门内传来脚步声，一位老人打开了门。",
+        },
+    )
+    adapter = CliAdapter(storage=storage, llm=fake_llm.call)
+    out = await adapter.handle(
+        InboundMessage.system_cmd(f"/world load {world_id}", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert "【上次进展】" in out.text
+    assert "门内传来脚步声，一位老人打开了门。" in out.text
+
+
+async def test_world_load_shows_memories(storage, world_id, fake_llm):
+    """/world load 有记忆后端时显示最近记忆条目（带轮次标记）。"""
+    class _StubMemory:
+        def __init__(self, hits):
+            self.hits = hits
+
+        async def search(self, query, world_id, *, top_k=5, since_turn=None):
+            return self.hits
+
+    mem = _StubMemory(
+        [MemoryHit(text="调查员在公墓发现墓碑上的读书人影", turn_num=2, score=0.9)]
+    )
+    adapter = CliAdapter(storage=storage, memory=mem, llm=fake_llm.call)
+    out = await adapter.handle(
+        InboundMessage.system_cmd(f"/world load {world_id}", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert "【近期记忆】" in out.text
+    assert "[t2]" in out.text
+    assert "调查员在公墓发现墓碑上的读书人影" in out.text
 
 
 async def test_world_delete_removes_world(storage, world_id, fake_llm):

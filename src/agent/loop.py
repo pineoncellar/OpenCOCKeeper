@@ -15,10 +15,12 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from src.core.log import get_logger
+from src.core.log import get_logger, get_llm_trace_logger
 from src.llm import LLMResult
 
 logger = get_logger(__name__)
+# 独立 LLM 交互 trace logger：工具调用请求/结果随完整 prompt 一并落 llm-<date>.log
+llm_trace = get_llm_trace_logger()
 
 
 def _brief(value: Any, limit: int = 60) -> str:
@@ -100,6 +102,11 @@ class ToolRunner:
         merged.update(inject)
         # 状态：每调一个工具即打日志（工具名 + 参数摘要），便于 CLI/文件侧调试闭环
         logger.info("工具调用 name=%s %s", name, _brief_args(arguments))
+        # 状态：完整参数落 llm trace 文件（调试提示词/Function Calling 用）
+        llm_trace.debug(
+            "工具调用 name=%s\nargs=%s",
+            name, json.dumps(arguments, ensure_ascii=False, indent=2),
+        )
         try:
             result = fn(**merged)
             if inspect.isawaitable(result):  # 状态：异步工具 await
@@ -121,6 +128,10 @@ class ToolRunner:
         logger.debug(
             "工具返回 name=%s ok=%s diff=%s check=%s",
             name, result.get("ok"), bool(diff), bool(check),
+        )
+        llm_trace.debug(
+            "工具返回 name=%s\nresult=%s",
+            name, json.dumps(result, ensure_ascii=False, indent=2, default=str),
         )
         return result
 

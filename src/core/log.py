@@ -110,6 +110,35 @@ def get_logger(name: str = "opencockeeper", level: Optional[int] = None) -> logg
     return _loggers[name]
 
 
+_llm_trace_logger: Optional[logging.Logger] = None
+
+
+def get_llm_trace_logger() -> logging.Logger:
+    """获取独立的 LLM 交互 trace logger（仅写文件，不污染根控制台）。
+
+    每次 LLM 请求/响应、工具调用请求/结果写入 ``logs/llm-<date>.log``
+    （DEBUG 级、UTF-8、按日滚动），供提示词与 Function Calling 调试；
+    与主日志分离，避免完整 prompt/响应刷屏终端。
+    """
+    global _llm_trace_logger
+    if _llm_trace_logger is not None:
+        return _llm_trace_logger
+    lgr = logging.getLogger("opencockeeper.llm_trace")
+    lgr.setLevel(logging.DEBUG)
+    lgr.propagate = False  # 状态：不向根 logger 传播，独立文件独立 handler
+    today = datetime.now().strftime("%Y-%m-%d")
+    handler = RotatingFileHandler(
+        LOG_DIR / f"llm-{today}.log",
+        maxBytes=DEFAULT_MAX_BYTES,
+        backupCount=DEFAULT_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    handler.setFormatter(_ConditionalFormatter())
+    lgr.addHandler(handler)
+    _llm_trace_logger = lgr
+    return lgr
+
+
 def setup_logging(level: Optional[int] = None) -> None:
     """显式初始化根日志（幂等）。通常在应用启动时调用一次。"""
     _ensure_root_handlers(level or _resolve_level())

@@ -17,9 +17,11 @@ from typing import AsyncGenerator, Dict, Optional
 import aiohttp
 
 from src.core.config import ConfigError, get_settings
-from src.core.log import get_logger
+from src.core.log import get_logger, get_llm_trace_logger
 
 logger = get_logger(__name__)
+# 独立 LLM 交互 trace logger：完整请求/响应落 logs/llm-<date>.log，供提示词调试
+llm_trace = get_llm_trace_logger()
 
 # ── 默认参数 ──
 DEFAULT_TIMEOUT = 60.0
@@ -195,6 +197,15 @@ async def call_llm(
     if tools:  # 状态：提供工具清单时启用 Function Calling
         body["tools"] = tools
 
+    # 状态：完整请求落 llm trace 文件（含 system/近程/tool 回填，调试提示词用）
+    llm_trace.debug(
+        "LLM 请求 tier=%s model=%s tools=%s\n%s",
+        tier,
+        model_config["model_name"],
+        [t.get("function", {}).get("name") for t in tools] if tools else None,
+        json.dumps(messages, ensure_ascii=False, indent=2),
+    )
+
     last_error: str | None = None
 
     for attempt in range(max_retries + 1):
@@ -218,6 +229,10 @@ async def call_llm(
                         if retryable and attempt < max_retries:
                             await asyncio.sleep(RETRY_DELAY_BASE * (attempt + 1))
                             continue
+                        llm_trace.debug(
+                            "LLM 响应失败 tier=%s HTTP=%s error=%s",
+                            tier, resp.status, error_text[:500],
+                        )
                         return LLMResult(text=None, tier=tier,
                                          model_name=model_config["model_name"],
                                          messages=messages, success=False,
@@ -236,6 +251,12 @@ async def call_llm(
                     content = message.get("content", "")
                     tool_calls = _parse_tool_calls(message.get("tool_calls"))
 
+                    llm_trace.debug(
+                        "LLM 响应 tier=%s success=True\ncontent=%s\ntool_calls=%s",
+                        tier,
+                        content or "",
+                        json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None,
+                    )
                     return LLMResult(text=content, tier=tier,
                                      model_name=model_config["model_name"],
                                      messages=messages, success=True,
@@ -267,6 +288,7 @@ async def call_llm(
                              messages=messages, success=False, error=str(e))
 
     logger.error(f"LLM 最终失败 (tier={tier}): {last_error}")
+    llm_trace.debug("LLM 最终失败 tier=%s error=%s", tier, last_error)
     return LLMResult(text=None, tier=tier, model_name=model_config["model_name"],
                      messages=messages, success=False, error=last_error)
 
@@ -311,6 +333,12 @@ async def call_llm_stream(
         "stream": True,
     }
 
+    llm_trace.debug(
+        "LLM 流式请求 tier=%s model=%s\n%s",
+        tier, model_config["model_name"],
+        json.dumps(messages, ensure_ascii=False, indent=2),
+    )
+
     for attempt in range(max_retries + 1):
         started = False  # 状态：是否已收到 200 开始产出；一旦为真即禁止重试
         try:
@@ -353,6 +381,7 @@ async def call_llm_stream(
                                     yield content
                             except json.JSONDecodeError:
                                 continue
+                    llm_trace.debug("LLM 流式结束 tier=%s", tier)
                     return  # 状态：流正常读完即结束生成器，否则会落入下一轮重试把同段内容重复输出
         except (asyncio.TimeoutError, aiohttp.ClientError) as e:
             logger.warning(
