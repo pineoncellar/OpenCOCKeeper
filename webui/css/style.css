@@ -176,6 +176,858 @@ html, body {
 }
 
 /* ====================================================================
+   State Inspector — 数据底座剖析面板
+   ==================================================================== */
+
+.inspector-status {
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-height: 18px;
+}
+
+.inspector-status.error {
+    color: var(--accent-red);
+    border-color: var(--accent-red);
+}
+
+.inspector-layout {
+    display: flex;
+    gap: 12px;
+    height: calc(100% - 32px);
+}
+
+.inspector-worlds {
+    width: 280px;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.inspector-world-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.inspector-world-item {
+    padding: 8px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    transition: background 0.1s;
+}
+
+.inspector-world-item:hover {
+    background: var(--bg-hover);
+}
+
+.inspector-world-item.active {
+    background: var(--bg-hover);
+    border-left: 3px solid var(--accent-blue);
+}
+
+.inspector-world-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.inspector-world-badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+}
+
+.inspector-world-badge.active { background: var(--accent-green); color: var(--bg-primary); }
+.inspector-world-badge.archived { background: var(--accent-purple); color: var(--bg-primary); }
+
+.inspector-world-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.inspector-world-recap {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.inspector-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 16px;
+    text-align: center;
+}
+
+.inspector-detail {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg-surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    padding: 12px;
+}
+
+.inspector-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.inspector-detail-head h2 {
+    font-size: 16px;
+    color: var(--accent-blue);
+    font-family: var(--font-mono);
+}
+
+.inspector-section {
+    margin-bottom: 16px;
+    background: var(--bg-primary);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    padding: 10px;
+}
+
+.inspector-overview {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 8px 0;
+}
+
+.inspector-ov-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.inspector-ov-item label,
+.inspector-recap label,
+.inspector-inventory label {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.inspector-ov-item span {
+    font-size: 14px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+}
+
+.inspector-recap {
+    padding: 8px 0;
+}
+
+.inspector-recap p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.5;
+}
+
+.inspector-entity-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
+    padding-top: 8px;
+}
+
+.inspector-entity-card {
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+}
+
+.inspector-entity-name {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+.inspector-entity-type {
+    font-size: 10px;
+    color: var(--accent-purple);
+    border: 1px solid var(--accent-purple);
+    border-radius: 3px;
+    padding: 0 4px;
+    margin-left: 6px;
+}
+
+.inspector-entity-stats {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    margin-bottom: 6px;
+}
+
+.inspector-entity-stats .stat.hp { color: var(--accent-red); }
+.inspector-entity-stats .stat.san { color: var(--accent-green); }
+.inspector-entity-stats .stat.mp { color: var(--accent-cyan); }
+
+.inspector-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.inspector-tag {
+    font-size: 10px;
+    background: var(--accent-orange);
+    color: var(--bg-primary);
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.inspector-inventory {
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.inspector-item {
+    font-size: 11px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 6px;
+}
+
+.inspector-turn-list {
+    max-height: 320px;
+    overflow-y: auto;
+    padding-top: 6px;
+}
+
+.inspector-turn-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.inspector-turn-row:hover {
+    background: var(--bg-hover);
+}
+
+.inspector-turn-num {
+    color: var(--accent-blue);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    flex-shrink: 0;
+    width: 110px;
+}
+
+.inspector-turn-text {
+    flex: 1;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.inspector-btn {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.inspector-btn:hover {
+    border-color: var(--accent-blue);
+}
+
+.inspector-btn.danger:hover {
+    border-color: var(--accent-red);
+    color: var(--accent-red);
+}
+
+.inspector-btn.rollback {
+    flex-shrink: 0;
+    font-size: 11px;
+}
+
+.inspector-memory-probe {
+    display: flex;
+    gap: 8px;
+    padding-top: 8px;
+}
+
+.inspector-memory-probe input {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 6px 10px;
+    font-size: 12px;
+    outline: none;
+}
+
+.inspector-memory-probe input:focus {
+    border-color: var(--accent-blue);
+}
+
+.inspector-memory-list {
+    padding-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.inspector-memory-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+}
+
+.inspector-memory-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.inspector-memory-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* ====================================================================
+   Config Editor — 配置可视化编辑器
+   ==================================================================== */
+
+.config-status {
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-height: 18px;
+}
+
+.config-status.error {
+    color: var(--accent-red);
+    border-color: var(--accent-red);
+}
+
+.config-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.config-spacer {
+    flex: 1;
+}
+
+.config-btn {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.config-btn:hover {
+    border-color: var(--accent-blue);
+}
+
+.config-btn.active {
+    background: var(--accent-blue);
+    color: var(--bg-primary);
+    font-weight: 600;
+}
+
+.config-btn.danger:hover {
+    border-color: var(--accent-red);
+    color: var(--accent-red);
+}
+
+.config-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 900px;
+}
+
+.config-section {
+    background: var(--bg-surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+
+.config-section-body {
+    padding: 10px 12px;
+}
+
+.config-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.config-row:last-child {
+    border-bottom: none;
+}
+
+.config-row-label {
+    width: 160px;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.config-row-label small {
+    display: block;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.config-row-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+}
+
+.config-row-field label {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 24px;
+}
+
+.config-row-field input[type="text"],
+.config-row-field input[type="number"],
+.config-row-field select {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 5px 8px;
+    font-size: 12px;
+    outline: none;
+    font-family: var(--font-mono);
+    width: 100%;
+    max-width: 260px;
+}
+
+.config-row-field input:focus,
+.config-row-field select:focus {
+    border-color: var(--accent-blue);
+}
+
+.config-row-field input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-blue);
+}
+
+.config-yaml-wrap {
+    margin-bottom: 10px;
+}
+
+.config-yaml-wrap textarea {
+    width: 100%;
+    height: 60vh;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+    outline: none;
+    tab-size: 2;
+}
+
+.config-yaml-wrap textarea:focus {
+    border-color: var(--accent-blue);
+}
+
+/* ====================================================================
+   Game Client — 图形化跑团终端
+   ==================================================================== */
+
+.game-status {
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-height: 18px;
+}
+
+.game-status.connected { color: var(--accent-green); }
+.game-status.disconnected { color: var(--accent-red); }
+
+.game-layout {
+    display: flex;
+    gap: 12px;
+    height: calc(100% - 32px);
+}
+
+.game-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.game-banner {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-orange);
+    border-radius: var(--radius);
+    padding: 8px 14px;
+    font-size: 13px;
+    color: var(--accent-cyan);
+    font-weight: 600;
+    min-height: 20px;
+}
+
+.game-banner-placeholder {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 12px;
+}
+
+.game-banner-module {
+    color: var(--accent-purple);
+}
+
+.game-log {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.game-msg {
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.game-msg.narrative {
+    color: var(--text-primary);
+    padding: 6px 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+}
+
+.game-msg.player {
+    color: var(--accent-cyan);
+    text-align: right;
+}
+
+.game-msg.player::before {
+    content: '你：';
+    color: var(--text-muted);
+}
+
+.game-msg.system {
+    color: var(--text-secondary);
+    font-size: 12px;
+    padding: 2px 8px;
+}
+
+.game-msg.system.warn { color: var(--accent-orange); }
+.game-msg.system.error { color: var(--accent-red); }
+
+/* 检定行内高亮（叙事文本内） */
+.check-inline {
+    display: inline-block;
+    background: var(--accent-blue);
+    color: var(--bg-primary);
+    border-radius: 3px;
+    padding: 0 6px;
+    font-weight: 600;
+    font-size: 12px;
+    margin: 2px 0;
+}
+
+/* 检定结果卡片 */
+.game-msg.check-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--accent-blue);
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+
+.check-dice {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    background: var(--accent-blue);
+    color: var(--bg-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.check-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.check-name {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.check-result {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: var(--font-mono);
+}
+
+.check-roll {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent-orange);
+}
+
+.check-target {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.check-rank {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-green);
+}
+
+/* 输入行 */
+.game-input-row {
+    display: flex;
+    gap: 8px;
+}
+
+.game-input-row input {
+    flex: 1;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 8px 12px;
+    font-size: 13px;
+    outline: none;
+}
+
+.game-input-row input:focus {
+    border-color: var(--accent-blue);
+}
+
+.game-btn {
+    background: var(--accent-blue);
+    color: var(--bg-primary);
+    border: none;
+    border-radius: 4px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.game-btn:hover {
+    filter: brightness(1.1);
+}
+
+.game-quick {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.game-chip {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+}
+
+.game-chip:hover {
+    border-color: var(--accent-blue);
+    color: var(--text-primary);
+}
+
+/* 角色面板 */
+.game-panel {
+    width: 240px;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.game-entity-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+.game-entity-name {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 6px;
+}
+
+.game-stat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.game-stat-label {
+    font-size: 10px;
+    font-weight: 600;
+    width: 26px;
+}
+
+.game-stat-label.hp { color: var(--accent-red); }
+.game-stat-label.san { color: var(--accent-green); }
+.game-stat-label.mp { color: var(--accent-cyan); }
+
+.game-bar {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.game-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s;
+}
+
+.game-bar-fill.hp { background: var(--accent-red); }
+.game-bar-fill.san { background: var(--accent-green); }
+.game-bar-fill.mp { background: var(--accent-cyan); }
+
+.game-stat-val {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    min-width: 48px;
+    text-align: right;
+}
+
+.game-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.game-tag {
+    font-size: 10px;
+    background: var(--accent-orange);
+    color: var(--bg-primary);
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.game-inventory {
+    margin-top: 6px;
+    font-size: 11px;
+}
+
+.game-inventory label {
+    color: var(--text-muted);
+    display: block;
+    margin-bottom: 2px;
+}
+
+.game-inventory div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.game-item {
+    font-size: 10px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 6px;
+    color: var(--text-secondary);
+}
+
+/* ====================================================================
    Trace 面板 — 三栏布局
    ==================================================================== */
 

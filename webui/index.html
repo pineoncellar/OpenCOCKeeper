@@ -20,9 +20,9 @@
             <h1 class="topbar-title">OpenCOCKeeper <span class="topbar-subtitle">WebUI</span></h1>
             <nav class="topbar-nav" id="tab-nav">
                 <button class="tab-btn active" data-tab="trace">Trace</button>
-                <button class="tab-btn" data-tab="worlds" disabled title="Phase 2">Worlds</button>
-                <button class="tab-btn" data-tab="config" disabled title="Phase 3">Config</button>
-                <button class="tab-btn" data-tab="game" disabled title="Phase 4">Game</button>
+                <button class="tab-btn" data-tab="worlds">Worlds</button>
+                <button class="tab-btn" data-tab="config">Config</button>
+                <button class="tab-btn" data-tab="game">Game</button>
             </nav>
             <!-- 世界筛选下拉框 -->
             <select class="world-filter" id="world-filter" title="按世界筛选 Trace 事件">
@@ -67,19 +67,19 @@
             </div>
         </section>
 
-        <!-- Phase 2 占位：Worlds 面板 -->
+        <!-- Worlds 面板：数据底座剖析器 -->
         <section class="tab-panel" id="panel-worlds">
-            <p class="placeholder">Worlds 面板 — Phase 2 实现</p>
+            <div id="state-inspector-container"></div>
         </section>
 
-        <!-- Phase 3 占位：Config 面板 -->
+        <!-- Config 面板：配置可视化编辑器 -->
         <section class="tab-panel" id="panel-config">
-            <p class="placeholder">Config 面板 — Phase 3 实现</p>
+            <div id="config-editor-container"></div>
         </section>
 
-        <!-- Phase 4 占位：Game 面板 -->
+        <!-- Game 面板：图形化跑团终端 -->
         <section class="tab-panel" id="panel-game">
-            <p class="placeholder">Game 面板 — Phase 4 实现</p>
+            <div id="game-client-container"></div>
         </section>
     </main>
 
@@ -91,8 +91,13 @@
         <span class="statusbar-item statusbar-right" id="status-time"></span>
     </footer>
 
+    <script src="/js/utils/api.js"></script>
     <script src="/js/utils/sse.js"></script>
+    <script src="/js/utils/ws.js"></script>
     <script src="/js/components/trace_viewer.js"></script>
+    <script src="/js/components/state_inspector.js"></script>
+    <script src="/js/components/config_editor.js"></script>
+    <script src="/js/components/game_client.js"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>

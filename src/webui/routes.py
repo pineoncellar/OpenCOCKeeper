@@ -2,8 +2,8 @@
 #
 # @File     :   routes.py
 # @Desc     :   WebUI REST API + SSE 路由处理器
-# @Note     :   Phase 1 仅含 SSE Trace 端点；Phase 2 追加数据底座 API
-#              所有路由注册在 server.py 中完成
+# @Note     :   SSE Trace 端点在此；数据底座 API 处理器见 db_inspector.py
+#              （server.py 统一注册全部路由）
 #
 
 from __future__ import annotations
@@ -72,18 +72,3 @@ async def trace_stream(request: web.Request) -> web.StreamResponse:
 async def health(request: web.Request) -> web.Response:
     """健康检查端点，供前端/反向代理探测服务状态。"""
     return web.json_response({"status": "ok", "service": "opencockeeper-webui"})
-
-
-# ====================================================================
-# Phase 2 预留 — 数据底座 API（占位）
-# ====================================================================
-
-
-async def list_worlds(request: web.Request) -> web.Response:
-    """Phase 2: 列出所有世界 — 当前占位返回空列表。"""
-    return web.json_response({"worlds": [], "note": "Phase 2 实现"})
-
-
-async def get_world_detail(request: web.Request) -> web.Response:
-    """Phase 2: 世界详情 — 当前占位。"""
-    return web.json_response({"note": "Phase 2 实现", "world_id": request.match_info.get("id", "")})

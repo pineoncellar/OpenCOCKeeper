@@ -82,11 +82,13 @@ async def run_cli(*, storage: Optional[Storage] = None, memory=None, worker=None
     worker = worker or ConsolidationWorker(memory=memory, storage=storage)
 
     worker_task = asyncio.create_task(worker.start(), name="consolidation-worker")
-    # 状态：WebUI 后台服务 — 与主适配器同事件循环共存，共享 TraceBus
+    # 状态：WebUI 后台服务 — 与主适配器同事件循环共存，共享 TraceBus 与存储门面
     webui_started = False
     if get_settings().get("webui.enabled", True):
         from src.webui.server import start_background as _start_webui
-        webui_started = await _start_webui()
+        webui_started = await _start_webui(
+            storage=storage, memory=memory, worker=worker,
+        )
     adapter = create_adapter(storage=storage, memory=memory, worker=worker)
     try:
         await adapter.run()  # 状态：adapter._cleanup 已优雅 stop worker

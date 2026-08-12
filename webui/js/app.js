@@ -12,6 +12,12 @@ const App = {
 
     async init() {
         this.traceViewer = new TraceViewer();
+        this.stateInspector = null;   // 状态：Worlds 面板懒初始化（首次点击时才建）
+        this.configEditor = null;     // 状态：Config 面板懒初始化
+        this.gameClient = null;       // 状态：Game 面板懒初始化
+        this._inspectorInited = false;
+        this._configInited = false;
+        this._gameInited = false;
         this._connStatus = document.getElementById('conn-status');
         this._statusTime = document.getElementById('status-time');
         this._worldFilter = document.getElementById('world-filter');
@@ -43,6 +49,36 @@ const App = {
             document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
             const panel = document.getElementById('panel-' + tab);
             if (panel) panel.classList.add('active');
+
+            // 状态：Worlds 面板首次打开时懒初始化数据剖析器
+            if (tab === 'worlds' && !this._inspectorInited) {
+                this._inspectorInited = true;
+                const container = document.getElementById('state-inspector-container');
+                if (container) {
+                    this.stateInspector = new StateInspector(container);
+                    this.stateInspector.init();
+                }
+            }
+
+            // 状态：Config 面板首次打开时懒初始化配置编辑器
+            if (tab === 'config' && !this._configInited) {
+                this._configInited = true;
+                const container = document.getElementById('config-editor-container');
+                if (container) {
+                    this.configEditor = new ConfigEditor(container);
+                    this.configEditor.init();
+                }
+            }
+
+            // 状态：Game 面板首次打开时懒初始化跑团终端
+            if (tab === 'game' && !this._gameInited) {
+                this._gameInited = true;
+                const container = document.getElementById('game-client-container');
+                if (container) {
+                    this.gameClient = new GameClient(container);
+                    this.gameClient.init();
+                }
+            }
         });
     },
 
