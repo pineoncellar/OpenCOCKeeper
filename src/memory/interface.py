@@ -166,7 +166,7 @@ class Memory:
         turn_nums = [t["turn_num"] for t in turns]
         # 第一步：LLM 计算全部前置，任一失败立即抛 MemoryOperationError，
         # 此时未写 RAG / 未写 recap / 未标记进度，整批可干净重试  # 状态：LLM 计算
-        events = await self._extract_events(turns)  # 微观：提炼原子事件
+        events = await self._extract_events(turns, world_id=world_id)  # 微观：提炼原子事件
         new_recap = await self._compose_recap(world_id, events)  # 宏观：生成前情提要
 
         # 第二步：副作用写入——写 RAG 原子事件、写回 global_recap、标记固化进度
@@ -307,7 +307,9 @@ class Memory:
 
     # ---- 内部：LLM 提炼与 recap ----
 
-    async def _extract_events(self, turns: List[dict]) -> List[Dict[str, Any]]:
+    async def _extract_events(
+        self, turns: List[dict], *, world_id: str = ""
+    ) -> List[Dict[str, Any]]:
         """调 LLM 把一批轮次提炼为原子事件列表。
 
         每条事件为 {"text": str, "turn": int(可选)}；
@@ -316,7 +318,10 @@ class Memory:
         """
         blocks = "\n".join(_render_turn(t) for t in turns)
         prompt = _EVENT_EXTRACT_PROMPT + blocks
-        result = await self._llm(self._tier, [{"role": "user", "content": prompt}])
+        result = await self._llm(
+            self._tier, [{"role": "user", "content": prompt}],
+            world_id=world_id, turn_num=(turns[-1]["turn_num"] if turns else 0),
+        )
         if not result.is_ok:
             raise MemoryOperationError(
                 f"事件提炼失败(tier={self._tier}): {result.error}"
@@ -342,7 +347,9 @@ class Memory:
         prompt = _RECAP_PROMPT.format(
             old=old_recap, new=new_text, max=self._recap_max_chars
         )
-        result = await self._llm(self._tier, [{"role": "user", "content": prompt}])
+        result = await self._llm(
+            self._tier, [{"role": "user", "content": prompt}], world_id=world_id,
+        )
         if not result.is_ok:
             raise MemoryOperationError(
                 f"宏观 recap 生成失败(tier={self._tier}): {result.error}"

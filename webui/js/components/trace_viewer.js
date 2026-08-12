@@ -17,10 +17,11 @@ class TraceViewer {
         this.statusTurns = document.getElementById('status-turns');
         this.statusTools = document.getElementById('status-tools');
 
-        // 状态：按 turn 分组的事件
-        this.turns = {};           // { turn_num: { events: [], tools: 0, converged: false } }
-        this.turnOrder = [];       // 有序 turn 列表
-        this.currentTurn = null;
+        // 状态：按 (world_id, turn_num) 分组的事件
+        this.turns = {};           // { key: { world_id, turn_num, events, tools, converged } }
+        this.turnOrder = [];       // 有序 [key] 列表
+        this.worldOrder = [];      // 有序 [world_id] 列表（用于时间线分组标题）
+        this.currentKey = null;    // 当前选中的 key
         this.eventCount = 0;
         this.chainNodes = [];      // 当前展示链的节点
 
@@ -32,6 +33,44 @@ class TraceViewer {
     }
 
     // ====================================================================
+    // 工具：key 生成与归属
+    // ====================================================================
+
+    _keyOf(worldId, turnNum) {
+        return `${worldId || 'unknown'}|${turnNum || 0}`;
+    }
+
+    _registerWorld(worldId) {
+        const w = worldId || 'unknown';
+        if (!this.worldOrder.includes(w)) {
+            this.worldOrder.push(w);
+        }
+    }
+
+    // ====================================================================
+    // 重置（世界筛选切换时调用）
+    // ====================================================================
+
+    reset() {
+        this.turns = {};
+        this.turnOrder = [];
+        this.worldOrder = [];
+        this.currentKey = null;
+        this.eventCount = 0;
+        this.chainNodes = [];
+        this.statusEvents.textContent = 'Events: 0';
+        this.statusTurns.textContent = 'Turns: 0';
+        this.statusTools.textContent = 'Tools: 0';
+        this.timelineEl.innerHTML = '';
+        this.chainEl.innerHTML = '';
+        this.chainEl.style.display = 'none';
+        this.emptyEl.style.display = 'block';
+        this.dualEl.style.display = 'none';
+        this.directiveEl.textContent = '';
+        this.narrationEl.textContent = '';
+    }
+
+    // ====================================================================
     // 事件入口
     // ====================================================================
 
@@ -39,45 +78,81 @@ class TraceViewer {
         this.eventCount++;
         this.statusEvents.textContent = `Events: ${this.eventCount}`;
 
+        const worldId = event.world_id || 'unknown';
         const turn = event.turn_num || 0;
-        if (!this.turns[turn]) {
-            this.turns[turn] = { events: [], tools: 0, converged: false };
-            this.turnOrder.push(turn);
-            this.turnOrder.sort((a, b) => a - b);
+        const key = this._keyOf(worldId, turn);
+        this._registerWorld(worldId);
+
+        if (!this.turns[key]) {
+            this.turns[key] = {
+                world_id: worldId,
+                turn_num: turn,
+                events: [],
+                tools: 0,
+                converged: false,
+            };
+            this.turnOrder.push(key);
+            this._sortTurnOrder();
             this._renderTimeline();
         }
-        this.turns[turn].events.push(event);
+        this.turns[key].events.push(event);
         this.statusTurns.textContent = `Turns: ${this.turnOrder.length}`;
 
         // 状态：自动切换到当前最新 turn
-        if (this.currentTurn === null || turn >= this.currentTurn) {
-            this.selectTurn(turn);
+        if (this.currentKey === null || this._orderOf(key) >= this._orderOf(this.currentKey)) {
+            this.selectKey(key);
         }
+    }
+
+    _sortTurnOrder() {
+        this.turnOrder.sort((a, b) => {
+            const ta = this.turns[a], tb = this.turns[b];
+            // 状态：先按世界顺序，再按轮次号
+            const wa = this.worldOrder.indexOf(ta.world_id);
+            const wb = this.worldOrder.indexOf(tb.world_id);
+            if (wa !== wb) return wa - wb;
+            return ta.turn_num - tb.turn_num;
+        });
+    }
+
+    _orderOf(key) {
+        return this.turnOrder.indexOf(key);
     }
 
     // ====================================================================
     // Turn 选择
     // ====================================================================
 
-    selectTurn(turnNum) {
-        this.currentTurn = turnNum;
+    selectKey(key) {
+        this.currentKey = key;
         this._renderTimeline();
-        this._renderChain(turnNum);
+        this._renderChain(key);
     }
 
     // ====================================================================
-    // 渲染时间线
+    // 渲染时间线（按世界分组）
     // ====================================================================
 
     _renderTimeline() {
         this.timelineEl.innerHTML = '';
-        for (const turn of this.turnOrder) {
-            const data = this.turns[turn];
-            const item = document.createElement('div');
-            item.className = 'timeline-item' + (turn === this.currentTurn ? ' active' : '');
-            item.dataset.turn = turn;
+        let lastWorld = null;
+        for (const key of this.turnOrder) {
+            const data = this.turns[key];
 
-            let label = `Turn ${turn}`;
+            // 状态：世界切换时插入分组标题
+            if (data.world_id !== lastWorld) {
+                lastWorld = data.world_id;
+                const header = document.createElement('div');
+                header.className = 'timeline-world-header';
+                header.textContent = `◈ ${data.world_id}`;
+                this.timelineEl.appendChild(header);
+            }
+
+            const item = document.createElement('div');
+            item.className = 'timeline-item' + (key === this.currentKey ? ' active' : '');
+            item.dataset.key = key;
+
+            let label = `Turn ${data.turn_num}`;
             const toolCount = data.tools || 0;
             if (toolCount > 0) {
                 label += ` <span class="turn-tools">${toolCount} tools</span>`;
@@ -87,7 +162,7 @@ class TraceViewer {
             }
             item.innerHTML = label;
 
-            item.addEventListener('click', () => this.selectTurn(turn));
+            item.addEventListener('click', () => this.selectKey(key));
             this.timelineEl.appendChild(item);
         }
     }
@@ -96,8 +171,9 @@ class TraceViewer {
     // 渲染工具链
     // ====================================================================
 
-    _renderChain(turnNum) {
-        const events = this.turns[turnNum]?.events || [];
+    _renderChain(key) {
+        const data = this.turns[key];
+        const events = data ? data.events : [];
         this.chainEl.innerHTML = '';
         this.chainNodes = [];
         this.emptyEl.style.display = 'none';
@@ -136,8 +212,8 @@ class TraceViewer {
         }
 
         // 状态：更新统计数据
-        this.turns[turnNum].tools = toolCallsInTurn;
-        this.turns[turnNum].converged = converged;
+        this.turns[key].tools = toolCallsInTurn;
+        this.turns[key].converged = converged;
         this.statusTools.textContent = `Tools: ${this.eventCount}`;
 
         // 状态：如有双 Agent 数据则显示对比区

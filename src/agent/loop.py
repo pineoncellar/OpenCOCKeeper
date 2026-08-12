@@ -27,8 +27,15 @@ from src.webui.trace_engine import (
 )
 
 logger = get_logger(__name__)
-# 独立 LLM 交互 trace logger：工具调用请求/结果随完整 prompt 一并落 llm-<date>.log
-llm_trace = get_llm_trace_logger()
+
+
+def _world_trace(world_id: str = "") -> Any:
+    """获取指定世界的独立 LLM trace logger（logs/llm-<world_id>-<date>.log）。
+
+    无 world_id 时回退通用 trace（logs/llm-<date>.log）；
+    按世界隔离文件，方便按世界审计完整 prompt/工具调用链。
+    """
+    return get_llm_trace_logger(world_id or None)
 
 
 def _brief(value: Any, limit: int = 60) -> str:
@@ -108,16 +115,17 @@ class ToolRunner:
             return {"ok": False, "error": f"未知工具: {name}"}
         merged: dict = dict(arguments or {})
         merged.update(inject)
+        # 状态：world_id / turn_num 提前取出，供 per-world trace 与 TraceBus 使用
+        w_id = str(inject.get("world_id", ""))
+        t_num = int(inject.get("turn_num", 0))
         # 状态：每调一个工具即打日志（工具名 + 参数摘要），便于 CLI/文件侧调试闭环
         logger.info("工具调用 name=%s %s", name, _brief_args(arguments))
-        # 状态：完整参数落 llm trace 文件（调试提示词/Function Calling 用）
-        llm_trace.debug(
+        # 状态：完整参数落该世界的 llm trace 文件（调试提示词/Function Calling 用）
+        _world_trace(w_id).debug(
             "工具调用 name=%s\nargs=%s",
             name, json.dumps(arguments, ensure_ascii=False, indent=2),
         )
         # 状态：发布 tool_call 事件到 TraceBus，供 WebUI SSE 实时消费
-        w_id = str(inject.get("world_id", ""))
-        t_num = int(inject.get("turn_num", 0))
         bus = get_trace_bus()
         await bus.publish(make_tool_call_event(name, arguments, world_id=w_id, turn_num=t_num))
         try:
@@ -145,7 +153,7 @@ class ToolRunner:
             "工具返回 name=%s ok=%s diff=%s check=%s",
             name, result.get("ok"), bool(diff), bool(check),
         )
-        llm_trace.debug(
+        _world_trace(w_id).debug(
             "工具返回 name=%s\nresult=%s",
             name, json.dumps(result, ensure_ascii=False, indent=2, default=str),
         )
@@ -396,7 +404,8 @@ async def run_tool_loop(
             tier, current, tools,
             world_id=world_id, turn_num=turn_num,
         ))
-        result = await llm(tier, current, tools=tools, temperature=temperature)
+        result = await llm(tier, current, tools=tools, temperature=temperature,
+                           world_id=world_id, turn_num=turn_num)
         # 状态：发布 llm_response 事件到 TraceBus
         await bus.publish(make_llm_response_event(
             result, tier,

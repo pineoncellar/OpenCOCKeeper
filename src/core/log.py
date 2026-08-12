@@ -111,21 +111,33 @@ def get_logger(name: str = "opencockeeper", level: Optional[int] = None) -> logg
 
 
 _llm_trace_logger: Optional[logging.Logger] = None
+_llm_trace_world_loggers: dict[str, logging.Logger] = {}
 
 
-def get_llm_trace_logger() -> logging.Logger:
+def get_llm_trace_logger(world_id: Optional[str] = None) -> logging.Logger:
     """获取独立的 LLM 交互 trace logger（仅写文件，不污染根控制台）。
 
     每次 LLM 请求/响应、工具调用请求/结果写入 ``logs/llm-<date>.log``
     （DEBUG 级、UTF-8、按日滚动），供提示词与 Function Calling 调试；
     与主日志分离，避免完整 prompt/响应刷屏终端。
+
+    当提供 world_id 时，返回 per-world 专属 logger，写入
+    ``logs/llm-<world_id>-<date>.log``，方便按世界隔离审计日志。
+    per-world logger 与通用 logger 互不干扰，均为独立文件独立 handler。
     """
+    if world_id:
+        return _get_world_llm_trace_logger(world_id)
+    return _get_generic_llm_trace_logger()
+
+
+def _get_generic_llm_trace_logger() -> logging.Logger:
+    """通用 trace logger：logs/llm-<date>.log（无 world_id 限定）。"""
     global _llm_trace_logger
     if _llm_trace_logger is not None:
         return _llm_trace_logger
     lgr = logging.getLogger("opencockeeper.llm_trace")
     lgr.setLevel(logging.DEBUG)
-    lgr.propagate = False  # 状态：不向根 logger 传播，独立文件独立 handler
+    lgr.propagate = False
     today = datetime.now().strftime("%Y-%m-%d")
     handler = RotatingFileHandler(
         LOG_DIR / f"llm-{today}.log",
@@ -136,6 +148,32 @@ def get_llm_trace_logger() -> logging.Logger:
     handler.setFormatter(_ConditionalFormatter())
     lgr.addHandler(handler)
     _llm_trace_logger = lgr
+    return lgr
+
+
+def _get_world_llm_trace_logger(world_id: str) -> logging.Logger:
+    """per-world trace logger：logs/llm-<world_id>-<date>.log。
+
+    按 world_id 缓存，同一世界复用同一 logger 实例；
+    文件 handler 独立，不与通用 trace 混写。
+    """
+    if world_id in _llm_trace_world_loggers:
+        return _llm_trace_world_loggers[world_id]
+    name = f"opencockeeper.llm_trace.world.{world_id}"
+    lgr = logging.getLogger(name)
+    lgr.setLevel(logging.DEBUG)
+    lgr.propagate = False
+    today = datetime.now().strftime("%Y-%m-%d")
+    safe_id = world_id.replace("/", "_").replace("\\", "_").replace(":", "_")
+    handler = RotatingFileHandler(
+        LOG_DIR / f"llm-{safe_id}-{today}.log",
+        maxBytes=DEFAULT_MAX_BYTES,
+        backupCount=DEFAULT_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    handler.setFormatter(_ConditionalFormatter())
+    lgr.addHandler(handler)
+    _llm_trace_world_loggers[world_id] = lgr
     return lgr
 
 

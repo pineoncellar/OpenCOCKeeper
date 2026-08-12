@@ -143,7 +143,7 @@ async def run_ending_wrapup(
         narrator = Narrator(llm=llm)
     # 终局演播为纯计算前置，失败零残留（终局轮已含手记，可干净重试）
     try:
-        narration = await narrator.narrate(directive, ending=True)
+        narration = await narrator.narrate(directive, ending=True, world_id=world_id)
     except Exception as e:  # noqa: BLE001  演播失败统一转 EndingError
         raise EndingError(f"终局演播失败: {type(e).__name__}: {e}") from e
     # 终局叙事覆盖 assistant 落库，终局字段权威副本入 context_data
@@ -265,7 +265,7 @@ async def run_narrated_turn(
         for t in storage.get_recent_turns(world_id, limit=recent_limit)
         if t["turn_num"] != directive.turn_num
     ]
-    narration = await narrator.narrate(directive, recent=recent, action=action)
+    narration = await narrator.narrate(directive, recent=recent, action=action, world_id=world_id)
     logger.info(
         "Narrator 演播完成 world=%s turn=%s 叙事长度=%d",
         world_id, directive.turn_num, len(narration),

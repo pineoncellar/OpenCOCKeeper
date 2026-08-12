@@ -14,8 +14,12 @@ const App = {
         this.traceViewer = new TraceViewer();
         this._connStatus = document.getElementById('conn-status');
         this._statusTime = document.getElementById('status-time');
+        this._worldFilter = document.getElementById('world-filter');
+        this._knownWorlds = new Set();   // 已见过的 world_id 集合（填充下拉框）
+        this._currentWorldFilter = '';   // 当前筛选的 world_id（'' = 全部）
 
         this._initTabs();
+        this._initWorldFilter();
         this._initSSE();
         this._startClock();
     },
@@ -43,11 +47,45 @@ const App = {
     },
 
     // ====================================================================
+    // 世界筛选
+    // ====================================================================
+
+    _initWorldFilter() {
+        if (!this._worldFilter) return;
+        this._worldFilter.addEventListener('change', () => {
+            this._currentWorldFilter = this._worldFilter.value;
+            // 状态：重连 SSE 应用世界过滤（SSE 端点原生支持 ?world_id=）
+            this._initSSE();
+            // 状态：清空并重建 trace 视图，展示筛选后的事件
+            this.traceViewer.reset();
+        });
+    },
+
+    _trackWorld(worldId) {
+        // 状态：把新出现的 world_id 加入下拉框选项（排除空 world）
+        if (!worldId) return;
+        if (this._knownWorlds.has(worldId)) return;
+        this._knownWorlds.add(worldId);
+        if (!this._worldFilter) return;
+        const opt = document.createElement('option');
+        opt.value = worldId;
+        opt.textContent = `世界: ${worldId}`;
+        this._worldFilter.appendChild(opt);
+    },
+
+    // ====================================================================
     // SSE 连接
     // ====================================================================
 
     _initSSE() {
-        this.sse = new SSEClient('/api/trace/stream', {
+        if (this.sse) {
+            this.sse.disconnect();
+        }
+        // 状态：带世界过滤的连接 URL
+        const url = this._currentWorldFilter
+            ? `/api/trace/stream?world_id=${encodeURIComponent(this._currentWorldFilter)}`
+            : '/api/trace/stream';
+        this.sse = new SSEClient(url, {
             onEvent: (data) => this._onTraceEvent(data),
             onStatus: (status) => this._onConnStatus(status),
             onError: (err) => console.warn('SSE error:', err),
@@ -56,10 +94,8 @@ const App = {
     },
 
     _onTraceEvent(event) {
-        // 状态：双 Agent 对比数据从 llm_response 和 converge 中提取
-        // 实际场景中，present_directive 收敛后的 llm_response 可能包含
-        // 导演手记，Narrator 的演播文本在 pipeline 落库后可从 recent_turns 读取
-        // 此处简化：通过 converge 事件附带的手记片段展示
+        // 状态：记录世界并转发给 TraceViewer
+        this._trackWorld(event.world_id || '');
         this.traceViewer.pushEvent(event);
     },
 

@@ -238,12 +238,14 @@ class Narrator:
         action: Optional[str] = None,
         recent_text: Optional[str] = None,
         ending: Optional[bool] = None,
+        world_id: str = "",
     ) -> str:
         """把一份《叙事决策大纲》翻译成玩家叙事文本。
 
         recent 为近程轮次记录（通常由管线从 storage 读取，不含本轮）；
         recent_text 已给则直接使用；ending 缺省自动取 directive.is_ending，
         为 True 时走 NARRATOR_ENDING_SYSTEM 终局演播（闭幕感 + 后日谈，不交还主动权）；
+        world_id 为可选项，提供时 LLM trace 按世界隔离写入；
         LLM 失败或产出空文本抛 NarratorError。
         """
         if ending is None:
@@ -256,7 +258,11 @@ class Narrator:
             ending=ending,
         )
         llm = self._resolve_llm()
-        result = await llm(self._tier, messages, temperature=self._temperature)
+        result = await llm(
+            self._tier, messages,
+            temperature=self._temperature,
+            world_id=world_id, turn_num=getattr(directive, "turn_num", 0),
+        )
         if not result.is_ok:
             raise NarratorError(
                 f"Narrator 演播失败: {result.error or '未知错误'}"
