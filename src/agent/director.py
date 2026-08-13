@@ -27,6 +27,7 @@ from src.agent.directive import (
 from src.agent.schemas import build_main_agent_schemas
 from src.core.exceptions import AgentLoopError
 from src.tools.commit import apply_turn_change
+from src.webui.trace_engine import get_trace_bus, make_directive_event
 
 logger = get_logger(__name__)
 
@@ -153,6 +154,10 @@ class Director:
             world_id, turn, converged, len(result.tool_calls),
             len(runner.collected_diffs), len(runner.collected_checks), is_ending,
         )
+        # 状态：发布导演手记事件到 TraceBus，供 WebUI 双 Agent 对比区实时渲染
+        await get_trace_bus().publish(make_directive_event(
+            narrative, world_id=world_id, turn_num=turn,
+        ))
         return NarrativeDirective(
             state_changes=record["state_diff"],
             narrative_directive=narrative,

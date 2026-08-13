@@ -1237,6 +1237,42 @@ html, body {
 .tool-badge.ok { background: var(--accent-green); color: var(--bg-primary); }
 .tool-badge.fail { background: var(--accent-red); color: var(--bg-primary); }
 
+/* 链节点展开：提示词 / 原始输出 */
+.chain-node .chain-expand {
+    color: var(--accent-cyan);
+    margin-left: 8px;
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.chain-node .chain-tag {
+    font-weight: 600;
+}
+
+.chain-node.llm-response {
+    border-left: 3px solid var(--accent-green);
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 4px 10px;
+}
+
+.chain-node .chain-prompt {
+    margin-top: 6px;
+    padding: 6px 8px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    border-left: 2px solid var(--accent-purple);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 320px;
+    overflow-y: auto;
+    color: var(--text-secondary);
+}
+
 /* 双 Agent 对比 */
 .trace-dual {
     flex-shrink: 0;

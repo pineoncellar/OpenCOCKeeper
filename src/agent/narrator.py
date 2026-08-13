@@ -17,6 +17,7 @@ from typing import Any, List, Optional
 
 from src.core.config import get_settings
 from src.core.exceptions import NarratorError
+from src.webui.trace_engine import get_trace_bus, make_llm_request_event
 
 # 默认演播模型档位与温度（文学表达优先于裁决档；可被 config / 构造参数覆盖）
 DEFAULT_TIER = "standard"
@@ -257,6 +258,11 @@ class Narrator:
             recent_text=recent_text,
             ending=ending,
         )
+        # 状态：发布 LLM 请求事件到 TraceBus（含完整 messages），供 WebUI 展示演播提示词
+        await get_trace_bus().publish(make_llm_request_event(
+            self._tier, messages, None,
+            world_id=world_id, turn_num=getattr(directive, "turn_num", 0),
+        ))
         llm = self._resolve_llm()
         result = await llm(
             self._tier, messages,

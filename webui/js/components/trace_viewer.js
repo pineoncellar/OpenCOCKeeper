@@ -208,13 +208,21 @@ class TraceViewer {
                     this._renderConverge(event);
                     converged = true;
                     break;
+                case 'directive':
+                    // 状态：导演手记落位，渲染结束时并入双 Agent 对比区
+                    this._currentDirective = (event.data || {}).directive || '';
+                    break;
+                case 'narration':
+                    // 状态：演播文本落位，渲染结束时并入双 Agent 对比区
+                    this._currentNarration = (event.data || {}).narration || '';
+                    break;
             }
         }
 
         // 状态：更新统计数据
         this.turns[key].tools = toolCallsInTurn;
         this.turns[key].converged = converged;
-        this.statusTools.textContent = `Tools: ${this.eventCount}`;
+        this.statusTools.textContent = `Tools: ${toolCallsInTurn}`;
 
         // 状态：如有双 Agent 数据则显示对比区
         if (this._currentDirective || this._currentNarration) {
@@ -228,8 +236,14 @@ class TraceViewer {
         const data = event.data || {};
         const node = document.createElement('div');
         node.className = 'chain-node llm-request';
-        node.textContent = `LLM 请求 tier=${data.tier} tools=${data.tool_names ? data.tool_names.join(', ') : '无'}`;
+        const tools = data.tool_names && data.tool_names.length
+            ? data.tool_names.join(', ') : '无';
+        node.innerHTML = `LLM 请求 tier=${data.tier} tools=${tools}` +
+            `<span class="chain-expand">展开提示词</span>`;
+        // 状态：点击展开最终组装的完整 messages（调试图）
+        this._attachExpand(node, '.chain-expand', '提示词', this._formatMessages(data.messages));
         this.chainEl.appendChild(node);
+        this.chainNodes.push(node);
     }
 
     _renderLLMResponse(event) {
@@ -239,8 +253,14 @@ class TraceViewer {
             return;
         }
         if (data.content) {
-            // 状态：可能是最终收敛文本，也可能是中间态的普通响应
-            // 留待收敛事件处理
+            // 状态：普通文本响应（非工具调用）——可展开查看原始输出全文
+            const node = document.createElement('div');
+            node.className = 'chain-node llm-response';
+            node.innerHTML = `<span class="chain-tag">LLM 响应</span>` +
+                `<span class="chain-expand">展开输出</span>`;
+            this._attachExpand(node, '.chain-expand', '输出', data.content);
+            this.chainEl.appendChild(node);
+            this.chainNodes.push(node);
         }
     }
 
@@ -310,6 +330,48 @@ class TraceViewer {
         node.textContent = `🎯 收敛 — ${data.reason || ''} (工具调用: ${data.tool_calls_count || 0})`;
         this.chainEl.appendChild(node);
         this.chainNodes.push(node);
+    }
+
+    // ====================================================================
+    // 折叠展开辅助
+    // ====================================================================
+
+    _attachExpand(node, triggerSel, label, content) {
+        const trigger = node.querySelector(triggerSel);
+        if (!trigger || !content) return;
+        trigger.style.cursor = 'pointer';
+        trigger.addEventListener('click', () => {
+            const panel = node.querySelector('.chain-prompt');
+            if (panel) {
+                // 状态：已展开则切换显隐
+                const hidden = panel.style.display === 'none';
+                panel.style.display = hidden ? 'block' : 'none';
+                trigger.textContent = hidden ? `收起${label}` : `展开${label}`;
+                return;
+            }
+            const box = document.createElement('div');
+            box.className = 'chain-prompt';
+            box.style.display = 'block';
+            box.textContent = content;
+            node.appendChild(box);
+            trigger.textContent = `收起${label}`;
+        });
+    }
+
+    _formatMessages(messages) {
+        if (!Array.isArray(messages)) return '';
+        const parts = [];
+        for (const m of messages) {
+            const role = m.role || '?';
+            let body = typeof m.content === 'string' ? m.content
+                : JSON.stringify(m.content ?? '', null, 2);
+            if (m.tool_calls) {
+                // 状态：工具调用消息附带 tool_calls 参数详情
+                body = (body || '') + '\n\n' + JSON.stringify(m.tool_calls, null, 2);
+            }
+            parts.push(`【${role}】\n${body}`);
+        }
+        return parts.join('\n\n' + '-'.repeat(40) + '\n\n');
     }
 
     // ====================================================================

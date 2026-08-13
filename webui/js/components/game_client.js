@@ -31,10 +31,19 @@ class GameClient {
                         <button class="game-btn" id="game-send">发送</button>
                     </div>
                     <div class="game-quick">
-                        <button class="game-chip" data-cmd="/status">/status</button>
-                        <button class="game-chip" data-cmd="/rollback latest">/rollback</button>
-                        <button class="game-chip" data-cmd="/world list">/world list</button>
                         <button class="game-chip" data-cmd="/help">/help</button>
+                        <button class="game-chip" data-cmd="/status">/status</button>
+                        <button class="game-chip" data-cmd="/world list">/world list</button>
+                        <button class="game-chip" data-cmd="/module list">/module list</button>
+                        <button class="game-chip" data-cmd="/card list">/card list</button>
+                        <button class="game-chip" data-cmd="/rollback">/rollback</button>
+                        <button class="game-chip" data-cmd="/world archive">/world archive</button>
+                        <button class="game-chip" data-fill="/world start ">/world start</button>
+                        <button class="game-chip" data-fill="/world load ">/world load</button>
+                        <button class="game-chip" data-fill="/world delete ">/world delete</button>
+                        <button class="game-chip" data-fill="/card import ">/card import</button>
+                        <button class="game-chip" data-fill="/card use ">/card use</button>
+                        <button class="game-chip" data-fill="/memory ">/memory</button>
                     </div>
                 </div>
                 <aside class="game-panel" id="game-panel">
@@ -51,7 +60,15 @@ class GameClient {
         this.container.querySelector('#game-send').addEventListener('click', () => this._sendInput());
         this.inputEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') this._sendInput(); });
         this.container.querySelectorAll('.game-chip').forEach(chip => {
-            chip.addEventListener('click', () => this._sendCommand(chip.dataset.cmd));
+            chip.addEventListener('click', () => {
+                if (chip.dataset.fill) {
+                    // 状态：带参命令模板——填入输入框由玩家补全参数后回车发送
+                    this.inputEl.value = chip.dataset.fill;
+                    this.inputEl.focus();
+                } else {
+                    this._sendCommand(chip.dataset.cmd);
+                }
+            });
         });
 
         this._connect();

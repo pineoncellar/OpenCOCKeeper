@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.adapter.cli import CliAdapter
+from src.adapter.web.adapter import WebAdapter
 from src.adapter.protocol import InboundMessage, MessageType
 from src.agent import (
     Director,
@@ -340,7 +340,7 @@ async def test_adapter_world_archive_command(storage, world_id, fake_llm):
     """/world archive 主动结团：BD 软结局 -> 收尾归档 -> 终局卡片 -> 会话退回主菜单。"""
     storage.update_world(world_id, global_recap="调查告一段落。")
     mem = FakeMemory(storage=storage)
-    adapter = CliAdapter(storage=storage, memory=mem, llm=fake_llm.call)
+    adapter = WebAdapter(storage=storage, memory=mem, llm=fake_llm.call)
     adapter._world_id = world_id
     fake_llm.set_response(
         "standard", "【旧宅 - 走廊 - 黎明】\n故事在此落幕，余波未平。"
@@ -360,7 +360,7 @@ async def test_adapter_world_archive_command(storage, world_id, fake_llm):
 
 async def test_adapter_archived_world_blocks_player_input(storage, world_id, fake_llm):
     """归档世界只读：玩家输入被拦截，不触发管线、不新增轮次。"""
-    adapter = CliAdapter(
+    adapter = WebAdapter(
         storage=storage, memory=FakeMemory(storage=storage), llm=fake_llm.call,
     )
     adapter._world_id = world_id
@@ -389,7 +389,7 @@ async def test_adapter_archived_world_rollback_reactivates(storage, world_id, fa
         world_id, recap="最终 recap", ending_type="BD", narration="终局演播", turn_num=1,
     )
     storage.update_world(world_id, status="ARCHIVED")
-    adapter = CliAdapter(storage=storage, memory=mem, llm=fake_llm.call)
+    adapter = WebAdapter(storage=storage, memory=mem, llm=fake_llm.call)
     adapter._world_id = world_id
 
     out = await adapter.handle(
@@ -414,7 +414,7 @@ async def test_adapter_archived_world_noop_rollback_keeps_archived(storage, worl
     )
     mem = FakeMemory(storage=storage)
     storage.update_world(world_id, status="ARCHIVED")
-    adapter = CliAdapter(storage=storage, memory=mem, llm=fake_llm.call)
+    adapter = WebAdapter(storage=storage, memory=mem, llm=fake_llm.call)
     adapter._world_id = world_id
 
     out = await adapter.handle(
@@ -431,7 +431,7 @@ async def test_adapter_player_input_ending_resets_pointer(storage, world_id, fak
     _seed_pc(storage, world_id)
     storage.update_world(world_id, global_recap="调查告一段落。")
     mem = FakeMemory(storage=storage)
-    adapter = CliAdapter(storage=storage, memory=mem, llm=fake_llm.call)
+    adapter = WebAdapter(storage=storage, memory=mem, llm=fake_llm.call)
     adapter._world_id = world_id
     fake_llm.set_response("smart", _ending_step(ending_type="TD"))
     fake_llm.set_response(

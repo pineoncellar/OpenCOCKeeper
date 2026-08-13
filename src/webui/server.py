@@ -70,7 +70,10 @@ async def ws_game(request: web.Request) -> web.WebSocketResponse:
         _active_ws.discard(ws)
         return ws
 
-    session_id = str(request.query.get("session_id", "web-default"))
+    session_id = str(request.query.get(
+        "session_id",
+        get_settings().get("adapter.web.session_id", "web-default"),
+    ))
     adapter = WebAdapter(
         storage=storage,
         memory=request.app.get("memory"),

@@ -99,16 +99,16 @@ context:
 
 # ------------------------------------------------------------
 # 适配器层
-# active 选择启用的消息源适配器（当前仅 cli，未来 onebot / web 在此注册）；
+# active 选择启用的消息源适配器（当前仅 web；CLI REPL 已移除，终端只做日志）；
 # 模型档位归 context 层，本段仅承载接入层自身配置
 # ------------------------------------------------------------
 adapter:
-  active: "cli"                   # 启用的适配器类型（cli / web / onebot）
+  active: "web"                   # 启用的适配器类型（web / onebot）
   preflight: true                  # 启动时执行 RAG 前置自检，FAIL 即中止
   check_embedding: true            # 自检是否探测 embedding 端点（离线开发可设 false）
-  # CLI 适配器专属参数
-  cli:
-    session_id: "cli-default"     # CLI 会话标识（窗口 id 概念仅限适配器层）
+  # Web 适配器专属参数
+  web:
+    session_id: "web-default"     # Web 会话缺省标识（窗口 id 概念仅限适配器层）
   # ------------------------------------------------------------
 # WebUI 系统控制台（与适配器类型无关，独立启用/停用）
 # 启用后与主程序（CLI/OneBot）同进程共享事件循环，可实时调试

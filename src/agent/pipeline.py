@@ -28,6 +28,7 @@ from src.core.config import get_settings
 from src.core.exceptions import EndingError
 from src.core.log import get_logger
 from src.tools.commit import apply_turn_change
+from src.webui.trace_engine import get_trace_bus, make_narration_event
 
 logger = get_logger(__name__)
 
@@ -250,6 +251,10 @@ async def run_narrated_turn(
             storage, world_id, directive,
             memory=memory, llm=llm, narrator=narrator, worker=worker,
         )
+        # 状态：发布终局演播文本事件到 TraceBus，供 WebUI 双 Agent 对比区实时渲染
+        await get_trace_bus().publish(make_narration_event(
+            ended.narration, world_id=world_id, turn_num=directive.turn_num,
+        ))
         return NarratedTurn(
             directive=directive,
             narration=ended.narration,
@@ -277,6 +282,10 @@ async def run_narrated_turn(
         assistant=narration,
         directive=directive.narrative_directive,
     )
+    # 状态：发布演播文本事件到 TraceBus，供 WebUI 双 Agent 对比区实时渲染
+    await get_trace_bus().publish(make_narration_event(
+        narration, world_id=world_id, turn_num=directive.turn_num,
+    ))
     # 状态：落库完成后触发上层钩子（如通知固化 Worker），失败不影响本轮交付
     if on_turn_committed is not None:
         try:

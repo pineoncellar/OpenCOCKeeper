@@ -31,6 +31,8 @@ class TraceEvent:
       tool_call     — 工具调用前（含 name 与 arguments）
       tool_result   — 工具执行返回后（含 result 摘要）
       converge      — 闭环收敛/收尾工具命中
+      directive     — Director 交卷提取的导演手记（narrative_directive）
+      narration     — Narrator 演播的玩家可见叙事文本
     """
     timestamp: str
     event_type: str
@@ -181,4 +183,32 @@ def make_converge_event(
         world_id=world_id,
         turn_num=turn_num,
         data={"reason": reason, "tool_calls_count": tool_calls_count},
+    )
+
+
+def make_directive_event(
+    directive: str,
+    world_id: str = "", turn_num: int = 0,
+) -> TraceEvent:
+    """构造导演手记事件：记录 Director 交卷提取的叙事决策大纲（Markdown 自由文本）。"""
+    return TraceEvent(
+        timestamp=_now(),
+        event_type="directive",
+        world_id=world_id,
+        turn_num=turn_num,
+        data={"directive": directive},
+    )
+
+
+def make_narration_event(
+    narration: str,
+    world_id: str = "", turn_num: int = 0,
+) -> TraceEvent:
+    """构造演播文本事件：记录 Narrator 输出的玩家可见叙事（终局/常规通用）。"""
+    return TraceEvent(
+        timestamp=_now(),
+        event_type="narration",
+        world_id=world_id,
+        turn_num=turn_num,
+        data={"narration": narration},
     )

@@ -102,7 +102,7 @@ class ConfigEditor {
                     <div class="config-row-label">激活适配器</div>
                     <div class="config-row-field">
                         <select data-path="adapter.active">
-                            ${['cli', 'onebot'].map(a => `<option value="${a}" ${c.adapter && c.adapter.active === a ? 'selected' : ''}>${a}</option>`).join('')}
+                            ${['web', 'onebot'].map(a => `<option value="${a}" ${c.adapter && c.adapter.active === a ? 'selected' : ''}>${a}</option>`).join('')}
                         </select>
                     </div>
                 </div>
