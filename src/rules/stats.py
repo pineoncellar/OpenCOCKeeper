@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
-# 八属性中文 → 英文缩写（别名归一用）
+# 属性中文 → 英文缩写（别名归一用；八属性 + 幸运）
 ATTRIBUTE_ALIASES = {
     "力量": "STR",
     "体质": "CON",
@@ -21,8 +21,9 @@ ATTRIBUTE_ALIASES = {
     "智力": "INT",
     "意志": "POW",
     "教育": "EDU",
+    "幸运": "LUCK",
 }
-ATTRIBUTE_CODES = frozenset(ATTRIBUTE_ALIASES.values())  # STR/CON/...
+ATTRIBUTE_CODES = frozenset(ATTRIBUTE_ALIASES.values())  # STR/CON/.../LUCK
 # 理智同义词（统一归一到 "理智"，检定目标 = 当前 san 值）
 SAN_ALIASES = frozenset(
     {"理智", "理智值", "SAN", "SAN值", "SANITY", "心智", "疯狂值"}

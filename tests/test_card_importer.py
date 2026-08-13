@@ -87,10 +87,11 @@ def test_parse_entity_stats_and_skills(tmp_path):
     card = _make_card(tmp_path / "felicity.xlsx")
     entity = parse_investigator_xlsx(card)["entity"]
     aas = entity["attributes_and_skills"]
-    # 八属性
+    # 属性（八属性 + 幸运 LUCK）
     assert aas["STR"] == 50 and aas["DEX"] == 60 and aas["POW"] == 70
     assert aas["CON"] == 60 and aas["APP"] == 50 and aas["EDU"] == 70
     assert aas["SIZ"] == 50 and aas["INT"] == 70
+    assert aas["LUCK"] == 50  # AG7 幸运（教育下方）
     # 技能合并与映射（"图书馆使用" → "图书馆利用"）
     assert aas["侦查"] == 20 + 10 + 20 + 10
     assert aas["图书馆利用"] == 5

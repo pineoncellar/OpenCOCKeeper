@@ -134,6 +134,8 @@ def test_normalize_aliases():
     assert normalize_target_name("理智") == ("san", "理智")
     assert normalize_target_name("SAN") == ("san", "理智")
     assert normalize_target_name("侦查") == ("skill", "侦查")
+    assert normalize_target_name("幸运") == ("stat", "LUCK")
+    assert normalize_target_name("luck") == ("stat", "LUCK")
 
 
 def test_resolve_skill_from_table():
@@ -147,6 +149,12 @@ def test_resolve_stat_abbrev_preferred_then_chinese():
     assert resolve_check_target(skills, "力量").value == 50  # 缩写优先
     skills_no_abbrev = {"力量": 55}
     assert resolve_check_target(skills_no_abbrev, "力量").value == 55
+
+
+def test_resolve_luck_stat():
+    # 幸运作为 stat：英文/中文键任一可解析，检定目标 = 幸运值本身
+    assert resolve_check_target({"LUCK": 60}, "幸运") == CheckTarget("stat", "LUCK", 60)
+    assert resolve_check_target({"幸运": 60}, "幸运") == CheckTarget("stat", "LUCK", 60)
 
 
 def test_resolve_san_returns_none_value():

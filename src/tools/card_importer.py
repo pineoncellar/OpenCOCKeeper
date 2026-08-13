@@ -209,11 +209,12 @@ def _parse_basic_info(ws) -> Tuple[str, str, int, str, str]:
 
 
 def _parse_stats(ws) -> Tuple[Dict[str, int], int]:
-    """提取八项属性（STR..EDU 缩写键）与幸运值"""
+    """提取八项属性（STR..EDU 缩写键）与幸运值；幸运并入属性表（LUCK=AG7，教育下方）"""
     stats: Dict[str, int] = {}
     for label, col, row in _STAT_COLS:
         stats[label] = _to_int(ws.cell(row=row, column=col).value)
     luck = _to_int(ws.cell(row=_LUCK_ROW, column=_LUCK_COL).value)
+    stats["LUCK"] = luck  # 状态：幸运作为属性入库，检定解析/面板可读
     return stats, luck
 
 
