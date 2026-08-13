@@ -113,13 +113,12 @@ class GameClient {
     }
 
     _onStateDiff(frame) {
-        // 状态：更新角色快照 + 渲染检定卡片（叙事由 state_diff.narration 也可展示）
+        // 状态：更新角色快照 + 渲染检定卡片
+        // 注意：不在此渲染 narration——玩家视角叙事已由 narrative 帧（send 推送）
+        // 单独展示，state_diff.narration 是落库广播的附带副本，若再渲染会整段重复
         if (Array.isArray(frame.entities) && frame.entities.length > 0) {
             this.entities = frame.entities;
             this._renderPanel();
-        }
-        if (frame.narration) {
-            this._appendNarration(frame.narration);
         }
         if (Array.isArray(frame.checks) && frame.checks.length > 0) {
             frame.checks.forEach(c => this._appendCheck(c));
