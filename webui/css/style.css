@@ -757,6 +757,8 @@ html, body {
 .game-msg {
     font-size: 13px;
     line-height: 1.6;
+    /* 状态：保留换行——系统/玩家消息经 textContent 插入，默认 CSS 折叠 \n */
+    white-space: pre-wrap;
 }
 
 .game-msg.narrative {

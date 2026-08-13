@@ -371,9 +371,10 @@ class AbstractAdapter(ABC):
                 has_content = True
                 lines.append("")
                 lines.append("【近期记忆】")
+                # 状态：记忆条目用 · 项目符号排版，不带 [tN] 轮次前缀——
+                # 括号标记对玩家接续存档是噪音，轮次信息可在 Worlds 面板记忆卡片回查
                 for h in hits:
-                    turn = f"t{h.turn_num}" if getattr(h, "turn_num", None) else "?"
-                    lines.append(f"  [{turn}] {h.text}")
+                    lines.append(f"  · {h.text}")
         if not has_content:
             lines.append("（该世界暂无历史记录，直接输入行动文本开始探索）")
         return OutboundMessage.system_msg("\n".join(lines), session_id=sid)

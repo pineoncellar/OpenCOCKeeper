@@ -178,7 +178,7 @@ async def test_world_load_shows_last_reply(storage, world_id, fake_llm):
 
 
 async def test_world_load_shows_memories(storage, world_id, fake_llm):
-    """/world load 有记忆后端时显示最近记忆条目（带轮次标记）。"""
+    """/world load 有记忆后端时显示最近记忆条目（· 项目符号排版）。"""
     class _StubMemory:
         def __init__(self, hits):
             self.hits = hits
@@ -195,8 +195,8 @@ async def test_world_load_shows_memories(storage, world_id, fake_llm):
     )
     assert out.type == MessageType.SYSTEM_MSG
     assert "【近期记忆】" in out.text
-    assert "[t2]" in out.text
-    assert "调查员在公墓发现墓碑上的读书人影" in out.text
+    assert "· 调查员在公墓发现墓碑上的读书人影" in out.text
+    assert "[t" not in out.text
 
 
 async def test_world_delete_removes_world(storage, world_id, fake_llm):

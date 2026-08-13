@@ -134,15 +134,15 @@ class GameClient {
     }
 
     _renderRichNarration(text) {
-        // 状态：首行报幕转横幅语义（仅内容区仍保留原文，横幅在顶部单独展示）
-        // 检定行高亮：形如 "侦查检定：23/80 困难成功"
+        // 状态：检定行高亮：形如 "侦查检定：23/80 困难成功"；
+        // 换行由 .game-msg 的 white-space: pre-wrap 保留，无需转 <br>
         let html = this._esc(text);
         html = html.replace(
             /([^\n]+检定)：\s*(\d+)\s*\/\s*(\d+)\s*(成功|失败)?/g,
             (m, name, roll, target, rank) =>
                 `<span class="check-inline">🎲 ${this._esc(name)}：${roll}/${target} ${this._esc(rank || '')}</span>`
         );
-        return html.replace(/\n/g, '<br>');
+        return html;
     }
 
     _appendCheck(check) {
