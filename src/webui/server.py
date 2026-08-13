@@ -40,6 +40,8 @@ logger = get_logger(__name__)
 
 # 全局 runner 引用，供后台 shutdown 时优雅停止
 _runner: Optional[web.AppRunner] = None
+# 活动 WebSocket 连接集合：stop_background 时先关闭，避免 cleanup 等待浏览器长连接
+_active_ws: set = set()
 
 
 # ====================================================================
@@ -56,6 +58,8 @@ async def ws_game(request: web.Request) -> web.WebSocketResponse:
     """
     ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)
+    # 状态：登记活动连接，供 stop_background 主动关闭（否则 cleanup 阻塞等浏览器断开）
+    _active_ws.add(ws)
 
     from src.adapter.web.adapter import WebAdapter
 
@@ -63,6 +67,7 @@ async def ws_game(request: web.Request) -> web.WebSocketResponse:
     if storage is None:
         await ws.send_json({"type": "system_message", "text": "存储未初始化", "level": "error"})
         await ws.close()
+        _active_ws.discard(ws)
         return ws
 
     session_id = str(request.query.get("session_id", "web-default"))
@@ -91,6 +96,7 @@ async def ws_game(request: web.Request) -> web.WebSocketResponse:
             elif msg.type == WSMsgType.ERROR:
                 break
     finally:
+        _active_ws.discard(ws)
         adapter.close_connection()
         logger.info("Web 玩家断开 session=%s", session_id)
     return ws
@@ -203,9 +209,24 @@ async def start_background(
 
 
 async def stop_background() -> None:
-    """优雅停止后台 WebUI 服务。"""
+    """优雅停止后台 WebUI 服务：先关活动 WebSocket，再清理 runner。
+
+    不先关 WebSocket 时，AppRunner.cleanup 会 server.shutdown(timeout=60) 等待
+    所有 handler 结束——而浏览器 Game 面板长连接让 /ws/game handler 一直阻塞，
+    导致 CLI /q 退出卡住最长近两分钟。主动 close(1001 going away) 后 handler
+    立即收到关闭事件退出，cleanup 即秒级完成。
+    """
     global _runner
     if _runner is not None:
+        # 状态：关闭所有活动 WebSocket，code 1001 = 服务端主动离场
+        for ws in list(_active_ws):
+            try:
+                await ws.close(code=1001, message=b"server shutdown")
+            except Exception as e:  # noqa: BLE001  单条关闭失败不阻断整体
+                logger.debug(f"关闭 WebSocket 失败: {e}")
+        # 状态：让 handler 处理 close 帧后退出（短暂让出事件循环），再执行 cleanup
+        if _active_ws:
+            await asyncio.sleep(0.1)
         await _runner.cleanup()
         _runner = None
         logger.info("WebUI 后台服务已停止")

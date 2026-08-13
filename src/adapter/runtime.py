@@ -93,7 +93,7 @@ async def run_cli(*, storage: Optional[Storage] = None, memory=None, worker=None
     try:
         await adapter.run()  # 状态：adapter._cleanup 已优雅 stop worker
     finally:
-        # 状态：先停 WebUI，再停 worker
+        # 状态：先停 WebUI，再停 worker，最后释放 Memory 后端
         if webui_started:
             from src.webui.server import stop_background as _stop_webui
             await _stop_webui()
@@ -103,6 +103,12 @@ async def run_cli(*, storage: Optional[Storage] = None, memory=None, worker=None
                 await worker_task
             except asyncio.CancelledError:
                 pass
+        # 状态：显式关闭记忆后端——否则 mem0/qdrant 残留非守护线程，
+        # 进程退出挂起等待 + QdrantClient.__del__ 抛 ImportError 噪音
+        try:
+            await memory.close()
+        except Exception as e:  # noqa: BLE001  关闭失败不影响退出码
+            logger.debug(f"Memory 后端关闭失败: {e}")
     return 0
 
 

@@ -9,7 +9,13 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional, Protocol
+
+# 状态：禁用 mem0 内置 PostHog 遥测——它会在进程内起非守护后台线程（向
+# us.i.posthog.com 发事件 + feature flag 轮询），进程退出时挂起等待导致卡死；
+# 必须在 mem0 首次导入（mem0.memory.telemetry 读 env 常量）前置位
+os.environ.setdefault("MEM0_TELEMETRY", "false")
 
 from ..core.config import PROJECT_ROOT, ConfigError, Settings, get_settings
 from ..core.exceptions import MemoryOperationError
@@ -377,6 +383,29 @@ class Mem0Memory:
         self._mem0()
 
     async def close(self) -> None:
-        """置关闭标记并释放后端（真实连接断开由 mem0ai 自身管理，尽力而为）。"""
+        """置关闭标记并释放后端：真正关闭 Qdrant 本地客户端与 mem0 内部 API 客户端。
+
+        只置标记会让底层资源（portalocker 锁线程 / httpx 轮询线程）残留，
+        进程退出时挂起等待非守护线程，且 QdrantClient.__del__ 在解释器关闭阶段
+        抛 "sys.meta_path is None" ImportError 噪音；显式 close 可一并消除。
+        """
         self._closed = True
+        mem = self._memory
         self._memory = None
+        if mem is None:
+            return
+        # 关闭 Qdrant 本地客户端（释放 portalocker 文件锁线程）
+        try:
+            vs = getattr(mem, "vector_store", None)
+            client = getattr(vs, "client", None)
+            if client is not None and hasattr(client, "close"):
+                client.close()
+        except Exception as e:  # noqa: BLE001  尽力而为，关闭失败不影响退出
+            logger.debug(f"关闭 qdrant client 失败: {e}")
+        # 关闭 mem0 内部同步 API 客户端（embedding/LLM 的 httpx 线程）
+        try:
+            api_client = getattr(mem, "_api_client", None)
+            if api_client is not None and hasattr(api_client, "close"):
+                api_client.close()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"关闭 mem0 api client 失败: {e}")
