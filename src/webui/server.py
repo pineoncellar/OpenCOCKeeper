@@ -34,7 +34,13 @@ from .db_inspector import (
     api_rollback,
     api_search_memories,
 )
-from .routes import health, trace_stream
+from .routes import (
+    api_trace_turn,
+    api_trace_turns,
+    api_trace_worlds,
+    health,
+    trace_stream,
+)
 
 logger = get_logger(__name__)
 
@@ -140,9 +146,13 @@ def create_app(
     else:
         logger.warning("WebUI 静态文件目录不存在: %s，仅提供 API", static_dir)
 
-    # 状态：健康检查与 SSE Trace
+    # 状态：健康检查与 SSE Trace（实时增量）
     app.router.add_get("/api/health", health)
     app.router.add_get("/api/trace/stream", trace_stream)
+    # 状态：Trace 历史 REST（持久化读取，供前端世界/轮次树与翻页）
+    app.router.add_get("/api/trace/worlds", api_trace_worlds)
+    app.router.add_get("/api/trace/worlds/{id}/turns", api_trace_turns)
+    app.router.add_get("/api/trace/worlds/{id}/turns/{num}", api_trace_turn)
 
     # 状态：Phase 2 数据底座 API
     app.router.add_get("/api/worlds", api_list_worlds)

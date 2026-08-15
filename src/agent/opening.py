@@ -301,8 +301,9 @@ async def run_opening_narration(
     if narrator is None:
         narrator = Narrator(llm=llm)
     try:
-        # 状态：Narrator 演播为纯计算，前置——失败时未落任何库，可干净重试
-        narration = await narrator.narrate(directive, action=None)
+        # 状态：Narrator 演播为纯计算，前置——失败时未落任何库，可干净重试；
+        # world_id 必传，否则开场 trace 事件落到 traces 根目录不归任何世界
+        narration = await narrator.narrate(directive, action=None, world_id=world_id)
     except Exception as e:  # noqa: BLE001  开场演播失败统一转 OpeningError
         raise OpeningError(f"开场演播失败: {type(e).__name__}: {e}") from e
 

@@ -80,6 +80,22 @@ def _tmp_modules(tmp_path, monkeypatch):
     return d
 
 
+@pytest.fixture(autouse=True)
+def _tmp_trace_store(tmp_path, monkeypatch):
+    """每个测试独立的 trace 目录并重置 TraceStore 单例，杜绝写真实 logs/traces。
+
+    TraceBus.publish 内部会调 get_trace_store().append 落盘，若不做隔离，
+    任何走 run_tool_loop / narrate 的测试都会污染工作区 logs/traces。
+    """
+    from src.webui import trace_store as trace_store_module
+
+    d = tmp_path / "traces"
+    d.mkdir()
+    monkeypatch.setattr(trace_store_module, "TRACE_DIR", d)
+    monkeypatch.setattr(trace_store_module, "_trace_store", None)
+    return d
+
+
 @pytest.fixture
 def world_id(storage, _tmp_modules):
     """测试段 world_id（900 段），逻辑上远离真实世界的 world_001.. 段。"""

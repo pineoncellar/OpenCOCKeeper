@@ -37,16 +37,22 @@
         <!-- Trace 面板 -->
         <section class="tab-panel active" id="panel-trace">
             <div class="trace-layout">
-                <!-- 左侧：Turn 时间线 -->
+                <!-- 左侧：世界选择 -->
+                <aside class="trace-worlds" id="trace-worlds">
+                    <h3 class="panel-title">Worlds</h3>
+                    <div class="worlds-list" id="worlds-list"></div>
+                </aside>
+                <!-- 中左：轮次列表（随世界选择变化，可翻页） -->
                 <aside class="trace-timeline" id="trace-timeline">
                     <h3 class="panel-title">Turns</h3>
                     <div class="timeline-list" id="timeline-list"></div>
+                    <button class="load-more" id="trace-load-more" style="display:none">加载更早轮次</button>
                 </aside>
-                <!-- 中间：工具调用链 -->
+                <!-- 右侧：单轮 trace 详情（工具链 + 双 Agent 对比） -->
                 <div class="trace-detail" id="trace-detail">
                     <div class="trace-empty" id="trace-empty">
                         <p>等待 Trace 事件...</p>
-                        <p class="trace-hint">启动 CLI 跑一轮后，此处将实时显示主 Agent 的工具调用链与双 Agent 对比。</p>
+                        <p class="trace-hint">左侧选择世界后点选轮次，此处展示该轮完整 trace：玩家输入 → 主 Agent 工具链 → 导演手记 → 叙事演播。</p>
                     </div>
                     <div class="trace-chain" id="trace-chain" style="display:none"></div>
                     <!-- 双 Agent 对比 -->

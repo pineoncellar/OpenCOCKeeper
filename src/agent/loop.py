@@ -15,7 +15,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from src.core.log import get_logger, get_llm_trace_logger
+from src.core.log import get_logger
 from src.llm import LLMResult
 from src.webui.trace_engine import (
     get_trace_bus,
@@ -27,15 +27,6 @@ from src.webui.trace_engine import (
 )
 
 logger = get_logger(__name__)
-
-
-def _world_trace(world_id: str = "") -> Any:
-    """获取指定世界的独立 LLM trace logger（logs/llm-<world_id>-<date>.log）。
-
-    无 world_id 时回退通用 trace（logs/llm-<date>.log）；
-    按世界隔离文件，方便按世界审计完整 prompt/工具调用链。
-    """
-    return get_llm_trace_logger(world_id or None)
 
 
 def _brief(value: Any, limit: int = 60) -> str:
@@ -120,12 +111,7 @@ class ToolRunner:
         t_num = int(inject.get("turn_num", 0))
         # 状态：每调一个工具即打日志（工具名 + 参数摘要），便于 CLI/文件侧调试闭环
         logger.info("工具调用 name=%s %s", name, _brief_args(arguments))
-        # 状态：完整参数落该世界的 llm trace 文件（调试提示词/Function Calling 用）
-        _world_trace(w_id).debug(
-            "工具调用 name=%s\nargs=%s",
-            name, json.dumps(arguments, ensure_ascii=False, indent=2),
-        )
-        # 状态：发布 tool_call 事件到 TraceBus，供 WebUI SSE 实时消费
+        # 状态：发布 tool_call 事件到 TraceBus（含完整参数，供 WebUI SSE 实时消费）
         bus = get_trace_bus()
         await bus.publish(make_tool_call_event(name, arguments, world_id=w_id, turn_num=t_num))
         try:
@@ -152,10 +138,6 @@ class ToolRunner:
         logger.debug(
             "工具返回 name=%s ok=%s diff=%s check=%s",
             name, result.get("ok"), bool(diff), bool(check),
-        )
-        _world_trace(w_id).debug(
-            "工具返回 name=%s\nresult=%s",
-            name, json.dumps(result, ensure_ascii=False, indent=2, default=str),
         )
         return result
 

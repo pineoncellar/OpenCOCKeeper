@@ -15,6 +15,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import AsyncGenerator, List, Optional
 
+from src.core.log import get_logger
+
+logger = get_logger(__name__)
+
 
 # ====================================================================
 # TraceEvent — 一次 LLM 交互或工具调用的结构化记录
@@ -60,7 +64,21 @@ class TraceBus:
         self._max_snapshot: int = 200
 
     async def publish(self, event: TraceEvent) -> None:
-        """发布事件：入队 + 写入快照环；队列满时丢弃最早事件。"""
+        """发布事件：持久化落盘 + 入队 + 写入快照环；队列满时丢弃最早事件。
+
+        写路径统一在此触发——生产端只经 get_trace_bus().publish 发布，
+        自动获得 TraceStore 持久化（重启可读历史），无需生产端感知。
+        """
+        # 状态：持久化到每世界每轮 JSONL（延迟导入避免循环依赖），失败仅记日志
+        try:
+            from src.webui.trace_store import get_trace_store
+
+            get_trace_store().append(event)
+        except Exception as e:  # noqa: BLE001  trace 属辅助，写失败不阻断主流程
+            logger.warning(
+                "TraceStore 落盘失败 world=%s turn=%s type=%s: %s",
+                event.world_id, event.turn_num, event.event_type, e,
+            )
         self._snapshot.append(event)
         if len(self._snapshot) > self._max_snapshot:
             self._snapshot = self._snapshot[-self._max_snapshot:]
@@ -183,6 +201,20 @@ def make_converge_event(
         world_id=world_id,
         turn_num=turn_num,
         data={"reason": reason, "tool_calls_count": tool_calls_count},
+    )
+
+
+def make_player_input_event(
+    action: str,
+    world_id: str = "", turn_num: int = 0,
+) -> TraceEvent:
+    """构造玩家输入事件：记录本轮玩家行动原文（每轮 trace 的输入锚点）。"""
+    return TraceEvent(
+        timestamp=_now(),
+        event_type="player_input",
+        world_id=world_id,
+        turn_num=turn_num,
+        data={"action": action},
     )
 
 

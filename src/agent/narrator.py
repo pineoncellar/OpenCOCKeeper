@@ -17,7 +17,11 @@ from typing import Any, List, Optional
 
 from src.core.config import get_settings
 from src.core.exceptions import NarratorError
-from src.webui.trace_engine import get_trace_bus, make_llm_request_event
+from src.webui.trace_engine import (
+    get_trace_bus,
+    make_llm_request_event,
+    make_llm_response_event,
+)
 
 # 默认演播模型档位与温度（文学表达优先于裁决档；可被 config / 构造参数覆盖）
 DEFAULT_TIER = "standard"
@@ -269,6 +273,11 @@ class Narrator:
             temperature=self._temperature,
             world_id=world_id, turn_num=getattr(directive, "turn_num", 0),
         )
+        # 状态：发布 LLM 响应事件到 TraceBus（含全文与 tool_calls），补全叙事 Agent 输入→输出链
+        await get_trace_bus().publish(make_llm_response_event(
+            result, self._tier,
+            world_id=world_id, turn_num=getattr(directive, "turn_num", 0),
+        ))
         if not result.is_ok:
             raise NarratorError(
                 f"Narrator 演播失败: {result.error or '未知错误'}"

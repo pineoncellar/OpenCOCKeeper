@@ -119,6 +119,10 @@ webui:
   host: "127.0.0.1"             # 监听地址（生产环境建议 127.0.0.1）
   port: 12954                     # 监听端口
   static_dir: "webui"            # 前端静态文件目录
+  # Trace 持久化：每世界一目录、每轮一 JSONL（logs/traces/<world_id>/turn-NNNNNN.jsonl），
+  # 重启后 WebUI 可读回历史；default_turns 为前端默认展示的最近轮数（可翻页）
+  trace:
+    default_turns: 20
 
 # ------------------------------------------------------------
 # 日志

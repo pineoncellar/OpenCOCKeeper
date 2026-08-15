@@ -28,7 +28,11 @@ from src.core.config import get_settings
 from src.core.exceptions import EndingError
 from src.core.log import get_logger
 from src.tools.commit import apply_turn_change
-from src.webui.trace_engine import get_trace_bus, make_narration_event
+from src.webui.trace_engine import (
+    get_trace_bus,
+    make_narration_event,
+    make_player_input_event,
+)
 
 logger = get_logger(__name__)
 
@@ -240,6 +244,10 @@ async def run_narrated_turn(
         )
     if narrator is None:
         narrator = Narrator(llm=llm)
+    # 状态：发布玩家输入事件到 TraceBus（每轮 trace 的输入锚点），轮号由 Director 落库后回填
+    await get_trace_bus().publish(make_player_input_event(
+        action, world_id=world_id, turn_num=turn_num or 0,
+    ))
     directive = await director.run_turn(
         world_id, action, turn_num=turn_num
     )

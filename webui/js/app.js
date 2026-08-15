@@ -12,6 +12,8 @@ const App = {
 
     async init() {
         this.traceViewer = new TraceViewer();
+        // 状态：TraceViewer 选中世界时回调——同步顶栏下拉 + 重连 SSE 过滤
+        this.traceViewer.onWorldChange = (worldId) => this._onTraceWorldChange(worldId);
         this.stateInspector = null;   // 状态：Worlds 面板懒初始化（首次点击时才建）
         this.configEditor = null;     // 状态：Config 面板懒初始化
         this.gameClient = null;       // 状态：Game 面板懒初始化
@@ -27,7 +29,18 @@ const App = {
         this._initTabs();
         this._initWorldFilter();
         this._initSSE();
+        // 状态：Trace 面板初始加载世界列表（REST 读回历史）
+        this.traceViewer.init();
         this._startClock();
+    },
+
+    // 状态：TraceViewer 世界选择回调——同步下拉并重连 SSE（按世界过滤）
+    _onTraceWorldChange(worldId) {
+        this._currentWorldFilter = worldId || '';
+        if (this._worldFilter) {
+            this._worldFilter.value = this._currentWorldFilter;
+        }
+        this._initSSE();
     },
 
     // ====================================================================
@@ -89,20 +102,29 @@ const App = {
     _initWorldFilter() {
         if (!this._worldFilter) return;
         this._worldFilter.addEventListener('change', () => {
-            this._currentWorldFilter = this._worldFilter.value;
-            // 状态：重连 SSE 应用世界过滤（SSE 端点原生支持 ?world_id=）
-            this._initSSE();
-            // 状态：清空并重建 trace 视图，展示筛选后的事件
-            this.traceViewer.reset();
+            const value = this._worldFilter.value;
+            if (value) {
+                // 状态：下拉选中某世界 → 联动左侧列表选中并重连 SSE
+                this.traceViewer.selectWorld(value);
+            } else {
+                // 状态：全部世界 → 仅重连 SSE（不过滤），左侧列表视图不动
+                this._currentWorldFilter = '';
+                this._initSSE();
+            }
         });
     },
 
     _trackWorld(worldId) {
-        // 状态：把新出现的 world_id 加入下拉框选项（排除空 world）
+        // 状态：把新出现的 world_id 加入下拉框选项并刷新左侧世界列表（排除空 world）
         if (!worldId) return;
-        if (this._knownWorlds.has(worldId)) return;
-        this._knownWorlds.add(worldId);
+        if (!this._knownWorlds.has(worldId)) {
+            this._knownWorlds.add(worldId);
+            // 状态：SSE 出现新世界 → 刷新世界列表（REST 为主，增量补新）
+            this.traceViewer.loadWorlds();
+        }
         if (!this._worldFilter) return;
+        const exists = Array.from(this._worldFilter.options).some(o => o.value === worldId);
+        if (exists) return;
         const opt = document.createElement('option');
         opt.value = worldId;
         opt.textContent = `世界: ${worldId}`;

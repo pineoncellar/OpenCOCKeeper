@@ -17,7 +17,7 @@ from typing import AsyncGenerator, Dict, Optional
 import aiohttp
 
 from src.core.config import ConfigError, get_settings
-from src.core.log import get_logger, get_llm_trace_logger
+from src.core.log import get_logger
 
 logger = get_logger(__name__)
 
@@ -171,10 +171,8 @@ async def call_llm(
         max_retries: 失败重试次数
         temperature: 覆盖配置中的 temperature（None=使用配置值）
         max_tokens:  覆盖配置中的 max_tokens（None=使用配置值）
-        world_id:    世界 id（可选项）。提供时 LLM trace 按世界隔离写入
-                     logs/llm-<world_id>-<date>.log，便于分世界审计；
-                     缺省写入通用 logs/llm-<date>.log
-        turn_num:    轮次号（可选项，随 world_id 一并注入 trace 上下文）
+        world_id:    世界 id（可选项，调用链元数据，trace 事件由上层发布）
+        turn_num:    轮次号（可选项，随 world_id 一并传递的元数据）
 
     返回:
         LLMResult 对象（含 text + tier + model_name + messages + success + error）
@@ -186,9 +184,8 @@ async def call_llm(
         return LLMResult(text=None, tier=tier, model_name="", messages=messages,
                          success=False, error=str(e))
 
-    # 状态：按世界隔离的 trace logger（无 world_id 时回退通用）
-    trace = get_llm_trace_logger(world_id or None)
-
+    # 状态：请求/响应的结构化 trace 事件由上层（run_tool_loop / Narrator）发布，
+    # 本层不写独立文本日志，避免与结构化 trace 重复
     api_url = _build_api_url(provider_config["base_url"])
     headers = {
         "Content-Type": "application/json",
@@ -203,15 +200,6 @@ async def call_llm(
     }
     if tools:  # 状态：提供工具清单时启用 Function Calling
         body["tools"] = tools
-
-    # 状态：完整请求落该世界 llm trace 文件（含 system/近程/tool 回填，调试提示词用）
-    trace.debug(
-        "LLM 请求 world=%s turn=%s tier=%s model=%s tools=%s\n%s",
-        world_id, turn_num, tier,
-        model_config["model_name"],
-        [t.get("function", {}).get("name") for t in tools] if tools else None,
-        json.dumps(messages, ensure_ascii=False, indent=2),
-    )
 
     last_error: str | None = None
 
@@ -236,10 +224,6 @@ async def call_llm(
                         if retryable and attempt < max_retries:
                             await asyncio.sleep(RETRY_DELAY_BASE * (attempt + 1))
                             continue
-                        trace.debug(
-                            "LLM 响应失败 world=%s turn=%s tier=%s HTTP=%s error=%s",
-                            world_id, turn_num, tier, resp.status, error_text[:500],
-                        )
                         return LLMResult(text=None, tier=tier,
                                          model_name=model_config["model_name"],
                                          messages=messages, success=False,
@@ -258,12 +242,6 @@ async def call_llm(
                     content = message.get("content", "")
                     tool_calls = _parse_tool_calls(message.get("tool_calls"))
 
-                    trace.debug(
-                        "LLM 响应 world=%s turn=%s tier=%s success=True\ncontent=%s\ntool_calls=%s",
-                        world_id, turn_num, tier,
-                        content or "",
-                        json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None,
-                    )
                     return LLMResult(text=content, tier=tier,
                                      model_name=model_config["model_name"],
                                      messages=messages, success=True,
@@ -295,7 +273,6 @@ async def call_llm(
                              messages=messages, success=False, error=str(e))
 
     logger.error(f"LLM 最终失败 (tier={tier}): {last_error}")
-    trace.debug("LLM 最终失败 world=%s turn=%s tier=%s error=%s", world_id, turn_num, tier, last_error)
     return LLMResult(text=None, tier=tier, model_name=model_config["model_name"],
                      messages=messages, success=False, error=last_error)
 
@@ -317,7 +294,7 @@ async def call_llm_stream(
     阶段，一旦流已建立并产出内容，中途异常直接终止——重播会把已输出的
     文本片段重复拼接，破坏叙事连续性。
     超时按 sock_read（两次读取间隔）计时，长叙事不会被总时长上限掐断。
-    world_id / turn_num 为可选项，提供时 LLM trace 按世界隔离写入。
+    world_id / turn_num 为调用链元数据，trace 事件由上层发布。
 
     用法::
 
@@ -330,9 +307,7 @@ async def call_llm_stream(
         logger.error(f"call_llm_stream: 配置错误 (tier={tier}): {e}")
         return
 
-    # 状态：按世界隔离的 trace logger（无 world_id 时回退通用）
-    trace = get_llm_trace_logger(world_id or None)
-
+    # 状态：请求/响应的结构化 trace 事件由上层发布，本层不写独立文本日志
     api_url = _build_api_url(provider_config["base_url"])
     headers = {
         "Content-Type": "application/json",
@@ -345,12 +320,6 @@ async def call_llm_stream(
         "max_tokens": max_tokens if max_tokens is not None else model_config.get("max_tokens", 1000),
         "stream": True,
     }
-
-    trace.debug(
-        "LLM 流式请求 world=%s turn=%s tier=%s model=%s\n%s",
-        world_id, turn_num, tier, model_config["model_name"],
-        json.dumps(messages, ensure_ascii=False, indent=2),
-    )
 
     for attempt in range(max_retries + 1):
         started = False  # 状态：是否已收到 200 开始产出；一旦为真即禁止重试
@@ -394,7 +363,6 @@ async def call_llm_stream(
                                     yield content
                             except json.JSONDecodeError:
                                 continue
-                    trace.debug("LLM 流式结束 world=%s turn=%s tier=%s", world_id, turn_num, tier)
                     return  # 状态：流正常读完即结束生成器，否则会落入下一轮重试把同段内容重复输出
         except (asyncio.TimeoutError, aiohttp.ClientError) as e:
             logger.warning(
