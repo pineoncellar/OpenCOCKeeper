@@ -11,9 +11,8 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
-from src.core.ids import make_world_id
 from src.core.log import get_logger
 
 from .protocol import InboundMessage, MessageType, OutboundMessage
@@ -51,6 +50,8 @@ class AbstractAdapter(ABC):
         self.session_id = session_id
         # 当前会话映射的世界 id（窗口 -> 世界映射的落点，仅本层持有）
         self._world_id: Optional[str] = None
+        # 状态：进行中的世界创建交互流程（/world start <世界id> 后两步收集：模组名 -> 角色卡名）
+        self._pending_world_flow: Dict[str, dict] = {}
         self._running = False
 
     # ---- 子类需实现的接口 ----
@@ -112,10 +113,14 @@ class AbstractAdapter(ABC):
         """
         if not text.strip():
             return OutboundMessage.system_msg("输入不能为空", level="warn", session_id=msg.session_id)
+        # 状态：世界创建交互流程（/world start 后两步收集：模组名 -> 角色卡名）
+        pending = self._pending_world_flow.get(msg.session_id)
+        if pending is not None:
+            return await self._step_world_flow(pending, text.strip(), msg)
         world_id = msg.world_id or self._world_id  # 状态：消息已带世界优先，否则取会话当前世界
         if not world_id:
             return OutboundMessage.system_msg(
-                "当前未选择世界。请先用 /world start <模组名> 开始游戏，或 /world load <世界ID> 载入。",
+                "当前未选择世界。请先用 /world start <世界ID> 开始游戏，或 /world load <世界ID> 载入。",
                 level="warn", session_id=msg.session_id,
             )
         world = self.storage.get_world(world_id)
@@ -191,8 +196,9 @@ class AbstractAdapter(ABC):
     async def _handle_world_cmd(self, cmd: str, sid: str) -> OutboundMessage:
         """处理 /world 系列命令：list / start / load / delete。
 
-        /world start <模组名> 创建新世界并绑定 data/modules 下的模组文件（强制校验），
-        同时把会话切换到新世界；重复创建同名模组世界时序号自增，不覆盖已有世界；
+        /world start <世界ID> 登记交互式创建流程——先收集模组名（校验存在），
+        再收集角色卡名，随后创建世界并绑定 data/modules 下的模组文件（强制校验）；
+        世界 id 不允许重复；创建后会话切换到新世界；
         /world load <世界ID> 载入已有世界（会话切换，等同读档续玩）；
         /world delete <世界ID> 永久删除世界（SQLite 级联实体/轮次/历史 + RAG 语义记忆）。
         """
@@ -203,7 +209,7 @@ class AbstractAdapter(ABC):
             worlds = self.storage.list_worlds()
             if not worlds:
                 return OutboundMessage.system_msg(
-                    "当前无任何世界。使用 /world start <模组名> 创建。", session_id=sid,
+                    "当前无任何世界。使用 /world start <世界ID> 创建。", session_id=sid,
                 )
             lines = [f"世界列表 ({len(worlds)} 个):"]
             for w in worlds:
@@ -215,60 +221,22 @@ class AbstractAdapter(ABC):
             return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
         if sub == "start":
-            rest = parts[2].strip() if len(parts) > 2 else ""
-            if not rest:
+            world_id = parts[2].strip() if len(parts) > 2 else ""
+            err = self._validate_new_world_id(world_id)
+            if err:
                 return OutboundMessage.system_msg(
-                    "用法: /world start <模组名> [角色名...]\n"
-                    "使用 /module list 查看可绑定的模组文件；"
-                    "角色名可选（匹配种子库中的角色，先 /card import）。",
+                    f"用法: /world start <世界ID>（如 /world start test1）\n{err}",
                     level="warn", session_id=sid,
                 )
-            tokens = rest.split()
-            module_name = tokens[0]
-            card_names = tokens[1:]  # 状态：可选种子角色名（创建世界时选择并拷贝）
-            try:
-                world_id = self._create_world_for_module(module_name)
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"创建世界失败: {e}")
-                return OutboundMessage.system_msg(
-                    f"创建世界失败: {type(e).__name__}: {e}",
-                    level="error", session_id=sid,
-                )
-            bound = []
-            if card_names:
-                from src.tools.card_store import copy_seed_to_world, list_seed_cards
-
-                seeds = list_seed_cards()
-                for cn in card_names:
-                    hit = next((s for s in seeds if cn in s["name"]), None)
-                    if hit:
-                        eid = copy_seed_to_world(self.storage, hit["seed_id"], world_id)
-                        bound.append(f"{hit['name']}({eid})")
-                    else:
-                        bound.append(f"{cn}(未找到种子角色)")
-            self._world_id = world_id  # 状态：创建即切换
-            lines = [f"世界已创建并切换: {world_id}（模组: {module_name}）"]
-            if bound:
-                lines.append("已绑定 PC: " + "、".join(bound))
-                # 状态：模组 + PC 双要素齐备，自动顺承 Turn 0 开场演播
-                # 无静默降级——开场失败（前置缺失/LLM 异常）显式拦截提示，可修复后重试
-                try:
-                    from src.agent.opening import run_opening_narration
-                    from src.core.exceptions import OpeningError
-
-                    opened = await run_opening_narration(
-                        self.storage, world_id, memory=self.memory, llm=self.llm,
-                    )
-                    return OutboundMessage.narrative(
-                        "\n".join(lines + ["", opened.narration]),
-                        session_id=sid, world_id=world_id,
-                    )
-                except OpeningError as e:
-                    lines.append(f"（开场初始化被拦截: {e}）")
-                    lines.append("请修复后重试 /world start，或直接输入行动文本继续。")
-                    return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
-            lines.append("直接输入行动文本开始探索。")
-            return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
+            # 状态：登记交互式创建流程——先收模组名，再收角色卡名，两步校验后创建
+            self._pending_world_flow[sid] = {
+                "world_id": world_id, "step": "module", "module_name": None,
+            }
+            return OutboundMessage.system_msg(
+                f"世界 id 已登记: {world_id}。\n"
+                f"请输入要绑定的模组名（/module list 查看可选模组）：",
+                session_id=sid,
+            )
 
 
 
@@ -315,28 +283,108 @@ class AbstractAdapter(ABC):
         return OutboundMessage.system_msg(
             "用法:\n"
             "  /world list               - 列出所有世界\n"
-            "  /world start <模组名>     - 创建新世界并绑定模组\n"
+            "  /world start <世界ID>     - 创建新世界（交互式输入模组名/角色卡名）\n"
             "  /world load <世界ID>      - 载入已有世界\n"
             "  /world archive            - 主动结团（BD 软结局）并归档当前世界\n"
             "  /world delete <世界ID>    - 删除世界（级联 + RAG 清理）",
             level="warn", session_id=sid,
         )
 
-    def _create_world_for_module(self, module_name: str) -> str:
-        """按模组名创建世界：序号取已有世界数 + 1，slug 由模组文件名清洗生成。
+    def _validate_new_world_id(self, value: str) -> Optional[str]:
+        """校验用户自定义世界 id：非空 + 安全字符 + 不重复；合法返回 None，否则返回错误信息。"""
+        v = (value or "").strip()
+        if not v:
+            return "世界 id 不能为空。"
+        if not _WORLD_ID_RE.match(v):
+            return "世界 id 只能包含字母/数字/下划线/连字符（不能以连字符开头），长度不超过 64。"
+        if self.storage.get_world(v) is not None:
+            return f"世界 id 已存在: {v}，请换一个（/world list 查看已有世界）。"
+        return None
 
-        模组名支持无扩展名模糊匹配（resolve_fuzzy 自动补 .pdf/.docx/.md）；
-        绑定与 world_id 一律用解析后的完整文件名，保证带后缀/不带后缀输入同一模组。
-        """
-        from src.module.loader import resolve_fuzzy as resolve_module
+    async def _step_world_flow(self, pending: dict, text: str, msg: InboundMessage) -> OutboundMessage:
+        """推进世界创建交互流程（/world start <世界id> 后）：模组名 -> 角色卡名 -> 创建。"""
+        sid = msg.session_id
+        if pending["step"] == "module":
+            # 状态：第一步——校验模组存在（resolve_fuzzy 支持自动补后缀）
+            from src.module.loader import resolve_fuzzy as resolve_module
 
-        path = resolve_module(module_name)  # 状态：绑定前强制校验模组文件存在（含自动补后缀）
-        full_name = path.name
-        slug = _slugify(full_name)
-        seq = len(self.storage.list_worlds()) + 1
-        world_id = make_world_id(seq, slug)
-        self.storage.ensure_world(world_id, module_name=full_name)
-        return world_id
+            try:
+                path = resolve_module(text)
+            except Exception as e:  # noqa: BLE001
+                return OutboundMessage.system_msg(
+                    f"模组不存在: {text}（{type(e).__name__}）。"
+                    f"使用 /module list 查看可选模组，请重新输入：",
+                    level="warn", session_id=sid,
+                )
+            pending["module_name"] = path.name
+            pending["step"] = "card"
+            return OutboundMessage.system_msg(
+                f"模组已确认: {path.name}\n"
+                f"请输入使用的角色卡名（/card list 查看可用角色；输入“跳过”可不绑定角色）：",
+                session_id=sid,
+            )
+        # 状态：第二步——收集角色卡名并创建世界
+        self._pending_world_flow.pop(sid, None)  # 先清流程，防创建过程嵌套触发
+        card_name = text.strip()
+        if not card_name or card_name in ("跳过", "跳过角色", "无", "-"):
+            card_names: list = []
+        else:
+            card_names = [card_name]
+        return await self._finalize_world_creation(
+            pending["world_id"], pending["module_name"], card_names, sid,
+        )
+
+    async def _finalize_world_creation(
+        self, world_id: str, module_name: str, card_names: list, sid: str,
+    ) -> OutboundMessage:
+        """创建世界（绑定模组）-> 绑定种子角色 -> 切换会话 -> 有 PC 时自动开场演播。"""
+        try:
+            from src.module.loader import resolve_fuzzy as resolve_module
+
+            path = resolve_module(module_name)  # 状态：绑定前强制校验模组存在（含自动补后缀）
+            full_name = path.name
+            self.storage.ensure_world(world_id, module_name=full_name)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"创建世界失败: {e}")
+            return OutboundMessage.system_msg(
+                f"创建世界失败: {type(e).__name__}: {e}",
+                level="error", session_id=sid,
+            )
+        bound = []
+        if card_names:
+            from src.tools.card_store import copy_seed_to_world, list_seed_cards
+
+            seeds = list_seed_cards()
+            for cn in card_names:
+                hit = next((s for s in seeds if cn in s["name"]), None)
+                if hit:
+                    eid = copy_seed_to_world(self.storage, hit["seed_id"], world_id)
+                    bound.append(f"{hit['name']}({eid})")
+                else:
+                    bound.append(f"{cn}(未找到种子角色)")
+        self._world_id = world_id  # 状态：创建即切换
+        lines = [f"世界已创建并切换: {world_id}（模组: {full_name}）"]
+        if bound:
+            lines.append("已绑定 PC: " + "、".join(bound))
+            # 状态：模组 + PC 双要素齐备，自动顺承 Turn 0 开场演播
+            # 无静默降级——开场失败（前置缺失/LLM 异常）显式拦截提示，可修复后重试
+            try:
+                from src.agent.opening import run_opening_narration
+                from src.core.exceptions import OpeningError
+
+                opened = await run_opening_narration(
+                    self.storage, world_id, memory=self.memory, llm=self.llm,
+                )
+                return OutboundMessage.narrative(
+                    "\n".join(lines + ["", opened.narration]),
+                    session_id=sid, world_id=world_id,
+                )
+            except OpeningError as e:
+                lines.append(f"（开场初始化被拦截: {e}）")
+                lines.append("请修复后重试 /world start，或直接输入行动文本继续。")
+                return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
+        lines.append("直接输入行动文本开始探索。")
+        return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
     async def _build_world_recall(self, world_id: str, sid: str) -> OutboundMessage:
         """载入世界时的回忆块：最新程序回复 + 最近记忆，帮玩家接续上次存档。
@@ -439,7 +487,7 @@ class AbstractAdapter(ABC):
             f"结局: {ended.ending_type}（{ending_label(ended.ending_type)}）\n"
             "================================"
         )
-        footer = "本次冒险已归档，返回主菜单。输入 /world start <模组名> 开启新旅程。"
+        footer = "本次冒险已归档，返回主菜单。输入 /world start <世界ID> 开启新旅程。"
         return OutboundMessage.narrative(
             f"{header}\n\n{ended.narration}\n\n{footer}",
             session_id=sid, world_id=world_id,
@@ -454,7 +502,7 @@ class AbstractAdapter(ABC):
         world_id = self._world_id
         if not world_id:
             return OutboundMessage.system_msg(
-                "当前未选择世界。使用 /world start <模组名> 或 /world load <世界ID>。",
+                "当前未选择世界。使用 /world start <世界ID> 或 /world load <世界ID>。",
                 level="warn", session_id=sid,
             )
         world = self.storage.get_world(world_id)
@@ -631,7 +679,7 @@ class AbstractAdapter(ABC):
                     f"  性别: {meta.get('gender') or '-'}  年龄: {meta.get('age', 0)}"
                     f"  住地: {meta.get('birthplace') or '-'}"
                 )
-            lines.append("用 /world start <模组名> <角色名> 创建世界并绑定，或 /card use 加入当前世界。")
+            lines.append("用 /world start <世界ID> 创建世界后按提示绑定，或 /card use 加入当前世界。")
             return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
         if sub == "list":
@@ -649,7 +697,7 @@ class AbstractAdapter(ABC):
                     f"  {s['seed_id']}  {s['name']}  [{s['occupation'] or '-'}]"
                     f"  幸运{s['luck']}"
                 )
-            lines.append("用法: /world start <模组名> <角色名>，或 /card use <种子id>。")
+            lines.append("用法: /world start <世界ID> 后按提示输入角色卡名，或 /card use <种子id>。")
             return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
         if sub == "use":
@@ -662,7 +710,7 @@ class AbstractAdapter(ABC):
                 )
             if not world_id:
                 return OutboundMessage.system_msg(
-                    "当前未选择世界。先 /world start <模组名> 创建，或 /world load <世界ID> 载入。",
+                    "当前未选择世界。先 /world start <世界ID> 创建，或 /world load <世界ID> 载入。",
                     level="warn", session_id=sid,
                 )
             try:
@@ -727,7 +775,7 @@ class AbstractAdapter(ABC):
         lines = [f"可用模组 ({len(mods)} 个):"]
         for m in mods:
             lines.append(f"  {m.module_name}  ({m.size} 字节)")
-        lines.append("使用 /world start <模组名> 创建世界。")
+        lines.append("使用 /world start <世界ID> 创建世界。")
         return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
 
 
@@ -736,18 +784,15 @@ class AbstractAdapter(ABC):
 # ============================================
 
 
-def _slugify(module_name: str) -> str:
-    """从模组文件名清洗出世界 slug：去扩展名、转小写、非法字符归一为下划线并截断。"""
-    stem = module_name.rsplit(".", 1)[0] if "." in module_name else module_name
-    slug = re.sub(r"[^a-z0-9]+", "_", stem.lower()).strip("_")
-    return slug[:32] or "module"
+# 用户自定义世界 id：仅字母/数字/下划线/连字符（不以连字符开头），长度 1~64
+_WORLD_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
 _HELP_TEXT = (
     "可用命令:\n"
     "======= 世界 =======\n"
     "  /world list                - 列出所有世界\n"
-    "  /world start <模组名> [角色名...] - 创建世界并绑定模组，可选绑定种子角色\n"
+    "  /world start <世界ID>      - 创建世界（交互输入模组名与角色卡名）\n"
     "  /world load <世界ID>       - 载入已有世界\n"
     "  /world archive             - 主动结团（BD 软结局）并归档当前世界\n"
     "  /world delete <世界ID>     - 删除世界（级联 + RAG 清理）\n"

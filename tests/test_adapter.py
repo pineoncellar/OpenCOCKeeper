@@ -91,38 +91,94 @@ async def test_player_input_without_world(storage, fake_llm):
 
 
 async def test_world_start_creates_and_switches(storage, fake_llm):
-    """/world start <模组名>：创建世界绑定模组文件，并切换为当前世界。"""
+    """/world start <世界id>：登记流程 -> 交互输入模组名 -> 跳过角色卡 -> 创建并切换。"""
     adapter = WebAdapter(storage=storage, llm=fake_llm.call)
     out = await adapter.handle(
-        InboundMessage.system_cmd(f"/world start {TEST_MODULE_NAME}", session_id="s")
+        InboundMessage.system_cmd("/world start test1", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert "世界 id 已登记" in out.text
+    assert "模组名" in out.text
+
+    out = await adapter.handle(
+        InboundMessage.player_input(TEST_MODULE_NAME, session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert "模组已确认" in out.text
+    assert "角色卡名" in out.text
+
+    out = await adapter.handle(
+        InboundMessage.player_input("跳过", session_id="s")
     )
     assert out.type == MessageType.SYSTEM_MSG
     assert "世界已创建" in out.text
-    assert adapter._world_id is not None
-    world = storage.get_world(adapter._world_id)
+    assert adapter._world_id == "test1"
+    world = storage.get_world("test1")
     assert world is not None
     assert world["module_name"] == TEST_MODULE_NAME
 
 
-async def test_world_start_requires_module(storage, fake_llm):
-    """/world start 不带模组名时给出用法提示，不创建世界。"""
+async def test_world_start_requires_world_id(storage, fake_llm):
+    """/world start 不带世界 id 时给出用法提示，不登记流程也不创建世界。"""
     adapter = WebAdapter(storage=storage, llm=fake_llm.call)
     out = await adapter.handle(InboundMessage.system_cmd("/world start", session_id="s"))
     assert out.type == MessageType.SYSTEM_MSG
     assert out.data["level"] == "warn"
     assert "用法" in out.text
+    assert adapter._pending_world_flow.get("s") is None
     assert storage.list_worlds() == []
 
 
 async def test_world_start_bad_module_rejected(storage, fake_llm):
-    """/world start 绑定不存在的模组文件：抛错并返回 error 提示，不创建世界。"""
+    """交互中模组名不存在：提示重新输入并保持流程，不创建世界。"""
     adapter = WebAdapter(storage=storage, llm=fake_llm.call)
     out = await adapter.handle(
-        InboundMessage.system_cmd("/world start missing_module.pdf", session_id="s")
+        InboundMessage.system_cmd("/world start test1", session_id="s")
+    )
+    assert "世界 id 已登记" in out.text
+
+    out = await adapter.handle(
+        InboundMessage.player_input("missing_module.pdf", session_id="s")
     )
     assert out.type == MessageType.SYSTEM_MSG
-    assert out.data["level"] == "error"
+    assert out.data["level"] == "warn"
+    assert "模组不存在" in out.text
     assert storage.list_worlds() == []
+
+    # 状态：流程仍保持 module 步，可继续输入正确模组名
+    out = await adapter.handle(
+        InboundMessage.player_input(TEST_MODULE_NAME, session_id="s")
+    )
+    assert "模组已确认" in out.text
+
+
+async def test_world_start_duplicate_world_id_rejected(storage, world_id, fake_llm):
+    """世界 id 不允许重复：已存在的 id 直接拒绝，不进入交互流程。"""
+    adapter = WebAdapter(storage=storage, llm=fake_llm.call)
+    out = await adapter.handle(
+        InboundMessage.system_cmd(f"/world start {world_id}", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert out.data["level"] == "warn"
+    assert "已存在" in out.text
+    assert adapter._pending_world_flow.get("s") is None
+
+
+async def test_world_start_invalid_world_id_rejected(storage, fake_llm):
+    """非法世界 id（含空白/非法字符）拒绝，不登记流程。"""
+    adapter = WebAdapter(storage=storage, llm=fake_llm.call)
+    out = await adapter.handle(
+        InboundMessage.system_cmd("/world start bad id", session_id="s")
+    )
+    assert out.type == MessageType.SYSTEM_MSG
+    assert out.data["level"] == "warn"
+    assert adapter._pending_world_flow.get("s") is None
+
+    out = await adapter.handle(
+        InboundMessage.system_cmd("/world start bad/id", session_id="s")
+    )
+    assert "只能包含" in out.text
+    assert adapter._pending_world_flow.get("s") is None
 
 
 async def test_world_list_and_load(storage, world_id, fake_llm):
@@ -468,7 +524,7 @@ async def test_card_list_empty(storage, tmp_path, monkeypatch, fake_llm):
 
 
 async def test_card_import_and_world_start_with_pc(storage, tmp_path, monkeypatch, fake_llm):
-    """/card import 入种子库 + /world start 带角色名建世界并绑定 PC。"""
+    """/card import 入种子库 + /world start 交互两步流程输入角色卡名建世界并绑定 PC。"""
     from src.tools import card_importer, card_store
 
     seeds = tmp_path / "seeds"
@@ -490,17 +546,25 @@ async def test_card_import_and_world_start_with_pc(storage, tmp_path, monkeypatc
     assert seed_rows[0]["occupation"] == "私家侦探"
 
     out = await adapter.handle(
-        InboundMessage.system_cmd(f"/world start {TEST_MODULE_NAME} 费莉西蒂", session_id="s")
+        InboundMessage.system_cmd("/world start test1", session_id="s")
+    )
+    assert "世界 id 已登记" in out.text
+    out = await adapter.handle(
+        InboundMessage.player_input(TEST_MODULE_NAME, session_id="s")
+    )
+    assert "模组已确认" in out.text
+    out = await adapter.handle(
+        InboundMessage.player_input("费莉西蒂", session_id="s")
     )
     assert "世界已创建并切换" in out.text
     assert "已绑定 PC" in out.text
-    assert adapter._world_id is not None
-    pcs = storage.get_entities(adapter._world_id, entity_type="PC")
+    assert adapter._world_id == "test1"
+    pcs = storage.get_entities("test1", entity_type="PC")
     assert len(pcs) == 1
     assert pcs[0]["name"].startswith("费莉西蒂")
     # 状态：模组 + PC 双要素齐备，自动顺承 Turn 0 开场演播（三件套落库）
     assert out.type == MessageType.NARRATIVE
-    turn0 = storage.get_turn(adapter._world_id, 0)
+    turn0 = storage.get_turn("test1", 0)
     assert turn0 is not None
     assert turn0["context_data"]["assistant"]
     assert turn0["solidified"] == 1  # 状态：已标记固化，后台 Worker 不会二次提炼开场
