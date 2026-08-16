@@ -2,8 +2,8 @@
 /*
 @File     :   prompt_editor.js
 @Desc     :   提示词编辑器 — 逐条表单编辑 prompts.yaml + 原始 YAML 高级视图，保存即热重载
-@Note     :   逐条模式列出现有/内置默认提示词 key（按分区分组），每条一个 textarea，
-             空值条目保存时跳过（回退内置默认）；YAML 模式提供全文编辑 + 校验；
+@Note     :   逐条模式列出现有提示词 key（按分区分组），每条一个 textarea，空值条目
+             保存时跳过（不写入文件）；YAML 模式提供全文编辑 + 校验；
              保存走 /api/prompts/save 或 /api/prompts/save_raw，后端写入后立即
              reload_prompts() 热重载——提示词改动运行时即刻生效，无需重启。
 */
@@ -36,7 +36,7 @@ const PROMPT_GROUP_LABELS = {
 class PromptEditor {
     constructor(container) {
         this.container = container;
-        this.keys = [];        // 全部可用 key（文件 + 内置默认，点号路径）
+        this.keys = [];        // 全部可用 key（来自 prompts.yaml，点号路径）
         this.flat = {};        // 文件已配置值的扁平 dict
         this.statusEl = null;
         this.bodyEl = null;
@@ -115,12 +115,10 @@ class PromptEditor {
         const sections = groups.map(g => {
             const label = PROMPT_GROUP_LABELS[g.group] || g.group;
             const rows = g.keys.map(key => {
-                const hasFile = Object.prototype.hasOwnProperty.call(this.flat, key);
-                const value = hasFile ? this.flat[key] : '';
-                const badge = hasFile ? '' : '<small>(内置默认)</small>';
+                const value = this.flat[key] || '';
                 return `
                     <div class="prompt-row">
-                        <div class="prompt-key">${this._esc(key)} ${badge}</div>
+                        <div class="prompt-key">${this._esc(key)}</div>
                         <textarea data-key="${this._esc(key)}" spellcheck="false">${this._escHtml(value)}</textarea>
                     </div>`;
             }).join('');
@@ -179,7 +177,7 @@ class PromptEditor {
                 const data = await api.post('/api/prompts/save_raw', { yaml: text });
                 message = data.message;
             } else {
-                // 状态：收集所有非空 textarea，空值条目跳过（回退内置默认）
+                // 状态：收集所有非空 textarea，空值条目跳过（不写入文件）
                 const flat = {};
                 this.container.querySelectorAll('[data-key]').forEach(el => {
                     const v = el.value;
@@ -189,7 +187,7 @@ class PromptEditor {
                 message = data.message;
             }
             this._setStatus(message || '提示词已保存并热重载');
-            // 状态：保存后重读，使"(内置默认)"标记与实际文件状态对齐
+            // 状态：保存后重读，与实际文件状态对齐
             this._load();
         } catch (e) {
             this._setStatus(`保存失败: ${e.message}`, 'error');

@@ -18,7 +18,6 @@ from aiohttp import web
 from src.core.log import get_logger
 from src.core.prompts import (
     PROMPTS_FILE,
-    _DEFAULTS,
     _file_data,
     reload_prompts,
 )
@@ -35,16 +34,11 @@ logger = get_logger(__name__)
 async def api_get_prompts(request: web.Request) -> web.Response:
     """返回 prompts.yaml 的结构化 dict + 全部可用提示词 key 清单。
 
-    prompts 为文件嵌套 dict（未配置项不出现，运行时由内置默认兜底）；
-    keys 合并文件键与内置默认键（点号路径，去重保序），供前端表单逐条渲染。
+    prompts 为文件嵌套 dict；keys 只来自文件实际存在的提示词（点号路径，保序），
+    供前端表单逐条渲染——缺失即视为未配置，运行时 get_prompt 会抛 PromptError。
     """
     file_data = _file_data()
-    keys: List[str] = []
-    seen: set = set()
-    for k in [*_collect_file_keys(file_data), *_DEFAULTS.keys()]:
-        if k not in seen:
-            seen.add(k)
-            keys.append(k)
+    keys: List[str] = _collect_file_keys(file_data)
     return web.json_response({"prompts": file_data, "keys": keys})
 
 
@@ -53,7 +47,7 @@ async def api_get_prompts_raw(request: web.Request) -> web.Response:
     try:
         text = PROMPTS_FILE.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return _err(404, "PromptsNotFound", "prompts.yaml 不存在（将使用内置默认提示词）")
+        return _err(404, "PromptsNotFound", "prompts.yaml 不存在，无法提供原始 YAML")
     return web.json_response({"yaml": text})
 
 
@@ -78,7 +72,7 @@ async def api_save_prompts(request: web.Request) -> web.Response:
     """保存前端逐条表单提交的提示词：扁平 dict → 嵌套 YAML → 原子写入 + 热重载。
 
     body 形如 {"prompts": {"director.system": "...", ...}}；
-    值为空串的 key 视为删除（回退内置默认），不写入文件。
+    值为空串的 key 视为删除（不写入文件），运行时该 key 缺失将抛 PromptError。
     """
     body = await _read_json(request)
     flat = (body or {}).get("prompts") if isinstance(body, dict) else None
