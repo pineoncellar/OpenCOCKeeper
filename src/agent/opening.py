@@ -23,6 +23,7 @@ from src.agent.narrator import Narrator
 from src.agent.schemas import build_tool_schemas
 from src.core.config import get_settings
 from src.core.exceptions import OpeningError
+from src.core.prompts import get_prompt
 
 # 默认开场裁决模型档位（可被 config.context.opening / 构造参数覆盖）
 DEFAULT_TIER = "smart"
@@ -35,58 +36,53 @@ DEFAULT_TIER = "smart"
 PRESENT_OPENING_NAME = "present_opening"
 
 # 收尾工具 schema：产出开场契约四要素（场景报幕 / 大纲提炼 / 开场手记 / 前情记忆）
-PRESENT_OPENING_SCHEMA: Dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": PRESENT_OPENING_NAME,
-        "description": (
-            "【收尾工具，信息足够即必须调用】输出开场决策契约：首行场景报幕 + 供 Narrator "
-            "演播的开场导演手记 + 需预植入记忆库的前情记忆。一旦检索完模组开篇与调查员 "
-            "背景、裁定好切入场景，立即调用本工具结束开场决策，不要继续检索。"
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "scene_tag": {
-                    "type": "string",
-                    "description": "首行场景报幕，如'阿诺兹堡 - 调查员事务所 - 雨后下午'",
+def build_present_opening_schema() -> Dict[str, Any]:
+    """构建 present_opening 收尾工具 schema；description 动态读配置（热重载生效）。"""
+    return {
+        "type": "function",
+        "function": {
+            "name": PRESENT_OPENING_NAME,
+            "description": get_prompt("opening.present_opening"),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "scene_tag": {
+                        "type": "string",
+                        "description": "首行场景报幕，如'阿诺兹堡 - 调查员事务所 - 雨后下午'",
+                    },
+                    "opening_summary": {
+                        "type": "string",
+                        "description": "模组核心大纲提炼：驱动机制（受托/卷入/考察/社交/固定开场）与事件 hook",
+                    },
+                    "narrative_directive": {
+                        "type": "string",
+                        "description": "供 Narrator 演播的开场导演手记 Markdown（含场景描写、NPC 登场与首个抉择点收尾）",
+                    },
+                    "seeded_memories": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "需预植入 RAG 的前情记忆句子（每句一个完整剧情事实）",
+                    },
                 },
-                "opening_summary": {
-                    "type": "string",
-                    "description": "模组核心大纲提炼：驱动机制（受托/卷入/考察/社交/固定开场）与事件 hook",
-                },
-                "narrative_directive": {
-                    "type": "string",
-                    "description": "供 Narrator 演播的开场导演手记 Markdown（含场景描写、NPC 登场与首个抉择点收尾）",
-                },
-                "seeded_memories": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "需预植入 RAG 的前情记忆句子（每句一个完整剧情事实）",
-                },
+                "required": ["scene_tag", "narrative_directive", "seeded_memories"],
             },
-            "required": ["scene_tag", "narrative_directive", "seeded_memories"],
         },
-    },
-}
+    }
+
+
+# 兼容旧引用：import 时求值一次的默认 schema（导出符号不破坏；
+# 运行时请走 build_present_opening_schema() 以保证热重载生效）
+PRESENT_OPENING_SCHEMA: Dict[str, Any] = build_present_opening_schema()
 
 
 # ====================================================================
 # 开场 System 指令（工作流引导：先检索模组、再对齐 PC、后交卷）
 # ====================================================================
 
-OPENING_SYSTEM = (
-    "你是《克苏鲁的呼唤》跑团系统的开场初始化 Agent（Opening Agent）。"
-    "你的任务：在玩家首个行动之前，结合模组开场背景与已创建的调查员角色卡，"
-    "裁定最契合的切入场景与剧情 hook，并产出供 Narrator 演播的开场导演手记。"
-    "工作流程：先调用 search_module 检索模组引言/开篇章节，提炼模组核心驱动机制"
-    "（受托委托 / 突发事件卷入 / 考察探索 / 社交日常 / 固定开场）与事件 hook；"
-    "再调用 get_pc_background 读取调查员职业与背景故事，让切入点与调查员身份深度对齐"
-    "（如私家侦探→委托人登门、学者→学术引荐咖啡馆、警探→直达案发现场）；"
-    "信息齐备后调用 present_opening 交卷。"
-    "严禁凭空脑补模组未提供的设定；切入点必须同时契合模组 hook 与调查员身份，"
-    "且不得替玩家决定后续行动——开场手记以抛出第一个抉择点收尾。"
-)
+# 开场 System 指令（工作流引导：先检索模组、再对齐 PC、后交卷）；
+# 正文外置 prompts.yaml（opening.system），import 时解析一次供导出/测试引用；
+# 运行时 run_opening_setup 每次动态 get_prompt，保证 WebUI 热重载后立即生效
+OPENING_SYSTEM = get_prompt("opening.system")
 
 
 # ====================================================================
@@ -169,7 +165,7 @@ def _opening_schemas() -> List[Dict[str, Any]]:
     return [
         all_schemas["search_module"],
         all_schemas["get_pc_background"],
-        PRESENT_OPENING_SCHEMA,
+        build_present_opening_schema(),
     ]
 
 
@@ -214,7 +210,7 @@ async def run_opening_setup(
     runner.reset_diffs()
     runner.reset_checks()
     messages = [
-        {"role": "system", "content": OPENING_SYSTEM},
+        {"role": "system", "content": get_prompt("opening.system")},
         {
             "role": "user",
             "content": (

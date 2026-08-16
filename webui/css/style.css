@@ -162,6 +162,8 @@ html, body {
 .tab-panel {
     display: none;
     height: 100%;
+    /* 状态：内容超高时面板内滚动，避免被 .main 的 overflow:hidden 截断导致无法下滑 */
+    overflow-y: auto;
 }
 
 .tab-panel.active {
@@ -686,6 +688,66 @@ html, body {
 
 .config-yaml-wrap textarea:focus {
     border-color: var(--accent-blue);
+}
+
+/* ====================================================================
+   Prompt Editor — 提示词编辑器（复用 config-* 基础样式）
+   ==================================================================== */
+
+.config-subnav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.prompt-body {
+    max-width: 1100px;
+}
+
+.prompt-row {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.prompt-row:last-child {
+    border-bottom: none;
+}
+
+.prompt-key {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    margin-bottom: 4px;
+}
+
+.prompt-key small {
+    color: var(--text-muted);
+    font-family: var(--font-sans, inherit);
+}
+
+.prompt-row textarea {
+    width: 100%;
+    min-height: 120px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 8px 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+    outline: none;
+    tab-size: 2;
+}
+
+.prompt-row textarea:focus {
+    border-color: var(--accent-blue);
+}
+
+.config-yaml-actions {
+    margin-top: 8px;
 }
 
 /* ====================================================================

@@ -16,30 +16,16 @@ from typing import Any, Dict, List, Optional
 
 from src.core.config import get_settings
 from src.core.exceptions import WorldNotFoundError
+from src.core.prompts import get_prompt
 
 # ====================================================================
 # 元认知指令（System）
 # ====================================================================
 
-# 默认元认知模板：身份定位 + 知识盲区断言 + 行动铁律，可被 assemble(system=) 整体覆盖
-DEFAULT_SYSTEM = (
-    "你是《克苏鲁的呼唤》跑团系统的总导演与规则裁决者。"
-    "你的职责是依据规则做出判定、推动剧情走向并决定事实揭露；你不直接进行文学渲染，"
-    "最终叙事由下游 Narrator 负责。"
-    "你当前手头只有调查员的基础数值与宏观前情提要，不掌握任何场景细节、NPC 设定或模组秘密。"
-    "行动铁律：若玩家行动触及未知的环境细节、NPC 反应或线索，必须调用 search_module 或 query_memory；"
-    "涉及规则判定必须调用 check_and_update_stats；需要修改角色或环境状态时调用 manage_tags。"
-    "调查员的属性、技能、背包与状态 Tag 已在本消息【调查员状态】中完整给出，"
-    "严禁为获取 PC 自身数据调用任何检索工具；search_module 仅查模组剧情，query_memory 仅查长程记忆。"
-    "严禁凭空脑补任何未检索确认的信息。"
-    "NPC 扮演：手记可含「### NPC 扮演提示」小节——关键 NPC 写明人设与反应；"
-    "次要 NPC 可略过，交由 Narrator 即兴确立性情细节，"
-    "但不得违背其身份事实（职业/立场/关键秘密）与已确立的态度基调。"
-    "大纲与指示仅界定 NPC 反应、环境变化与客观结果；"
-    "严禁代操玩家，绝对不要写出任何玩家未作出的动作、心理或台词，将行动选择权完全留给玩家。"
-    "当已获取足够信息支撑本轮裁决时，立即调用 present_directive 交卷结束本轮；"
-    "严禁无谓地反复检索同一主题，也不要替下游 Narrator 渲染最终叙事。"
-)
+# 默认元认知模板：身份定位 + 知识盲区断言 + 行动铁律，可被 assemble(system=) 整体覆盖；
+# 正文外置 prompts.yaml（director.system），此处 import 时解析一次供导出/测试引用；
+# 运行时 assemble() 每次动态 get_prompt，保证 WebUI 热重载后立即生效
+DEFAULT_SYSTEM = get_prompt("director.system")
 
 
 # ====================================================================
@@ -240,7 +226,8 @@ def assemble(
     world = storage.get_world(world_id)
     if world is None:
         raise WorldNotFoundError(f"世界不存在: {world_id}，请先 ensure_world 创建")
-    meta = system if system is not None else DEFAULT_SYSTEM
+    # 状态：system 未显式传入时每次动态读配置（热重载生效），不再吃 import 时快照
+    meta = system if system is not None else get_prompt("director.system")
     if limit is None:
         limit = int(get_settings().get("context.assembler.recent_turns", 10))
     turns = storage.get_recent_turns(world_id, limit=limit)

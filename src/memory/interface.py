@@ -18,6 +18,7 @@ from ..core.config import get_settings
 from ..core.db import get_db
 from ..core.exceptions import MemoryOperationError, WorldNotFoundError
 from ..core.log import get_logger
+from ..core.prompts import get_prompt
 from ..llm import call_llm as _default_call_llm
 from ..storage.storage import Storage
 
@@ -38,23 +39,13 @@ def compose_ending_snapshot(recap: str, ending_type: str, narration: str) -> str
         f"{narration or ''}"
     )
 
-# 事件提炼 prompt：要求 LLM 输出 JSON 数组，每条为一句完整的话
-_EVENT_EXTRACT_PROMPT = (
-    "你是 COC 跑团守秘人的记忆提炼器。下面给出最近几轮的对话与状态记录，"
-    "请提炼出对后续剧情有长期影响的\"原子事件\"。"
-    "每条事件用一句完整的话描述，只保留剧情事实、互动结果与场景细节，"
-    "不要写 HP/MP/SAN、技能数值与道具清单（那些由 SQLite 管理）。"
-    '用 JSON 数组返回，元素形如 {"event": "事件描述", "turn": 轮次号}，'
-    "turn 取该事件最相关的轮次号，不要输出数组以外的任何内容。\n\n"
-    "待提炼的记录：\n"
-)
+# 事件提炼 prompt：要求 LLM 输出 JSON 数组，每条为一句完整的话；
+# 正文外置 prompts.yaml（memory.event_extract），import 时解析一次，运行时 _extract_events 动态读取
+_EVENT_EXTRACT_PROMPT = get_prompt("memory.event_extract")
 
-# 宏观 recap prompt：融合旧前情提要与新事件，生成最新全局前情提要
-_RECAP_PROMPT = (
-    "你是 COC 跑团守秘人的前情提要整理器。请把\"旧前情提要\"与\"新发生的事件\""
-    "融合成一份不超过 {max} 字的全局前情提要，只输出正文，不要编号与标题。\n"
-    "旧前情提要：\n{old}\n\n新发生的事件：\n{new}\n"
-)
+# 宏观 recap prompt：融合旧前情提要与新事件，生成最新全局前情提要（含 {max}/{old}/{new} 占位符）；
+# 正文外置 prompts.yaml（memory.recap），运行时 _compose_recap 动态读取后 format
+_RECAP_PROMPT = get_prompt("memory.recap")
 
 
 # ============================================
@@ -317,7 +308,8 @@ class Memory:
         不做任何降级兜底——上层事件处理流靠异常中断后整批重试。
         """
         blocks = "\n".join(_render_turn(t) for t in turns)
-        prompt = _EVENT_EXTRACT_PROMPT + blocks
+        # 状态：每次动态读配置（热重载生效），不传 kwargs 原样返回原文
+        prompt = get_prompt("memory.event_extract") + blocks
         result = await self._llm(
             self._tier, [{"role": "user", "content": prompt}],
             world_id=world_id, turn_num=(turns[-1]["turn_num"] if turns else 0),
@@ -344,7 +336,8 @@ class Memory:
         world = self._storage.get_world(world_id)
         old_recap = (world or {}).get("global_recap") or ""
         new_text = "\n".join(e["text"] for e in events)
-        prompt = _RECAP_PROMPT.format(
+        # 状态：每次动态读配置（热重载生效）后按占位符填充
+        prompt = get_prompt("memory.recap").format(
             old=old_recap, new=new_text, max=self._recap_max_chars
         )
         result = await self._llm(

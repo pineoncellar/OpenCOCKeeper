@@ -24,6 +24,14 @@ from .config_manager import (
     api_save_config,
     api_validate_config,
 )
+from .prompt_manager import (
+    api_get_prompts,
+    api_get_prompts_raw,
+    api_reload_prompts,
+    api_save_prompts,
+    api_save_prompts_raw,
+    api_validate_prompts,
+)
 from .db_inspector import (
     api_delete_world,
     api_get_turn,
@@ -169,6 +177,14 @@ def create_app(
     app.router.add_get("/api/config/raw", api_get_config_raw)
     app.router.add_post("/api/config/validate", api_validate_config)
     app.router.add_post("/api/config/save", api_save_config)
+
+    # 状态：Phase 3.5 提示词管理 API（保存即热重载，与 config 的"重启生效"不同）
+    app.router.add_get("/api/prompts", api_get_prompts)
+    app.router.add_get("/api/prompts/raw", api_get_prompts_raw)
+    app.router.add_post("/api/prompts/validate", api_validate_prompts)
+    app.router.add_post("/api/prompts/save", api_save_prompts)
+    app.router.add_post("/api/prompts/save_raw", api_save_prompts_raw)
+    app.router.add_post("/api/prompts/reload", api_reload_prompts)
 
     # 状态：Phase 4 游戏数据面 — WebSocket 跑团终端
     app.router.add_get("/ws/game", ws_game)

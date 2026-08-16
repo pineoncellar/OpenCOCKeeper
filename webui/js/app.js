@@ -16,6 +16,7 @@ const App = {
         this.traceViewer.onWorldChange = (worldId) => this._onTraceWorldChange(worldId);
         this.stateInspector = null;   // 状态：Worlds 面板懒初始化（首次点击时才建）
         this.configEditor = null;     // 状态：Config 面板懒初始化
+        this.promptEditor = null;     // 状态：提示词编辑器懒初始化
         this.gameClient = null;       // 状态：Game 面板懒初始化
         this._inspectorInited = false;
         this._configInited = false;
@@ -73,7 +74,7 @@ const App = {
                 }
             }
 
-            // 状态：Config 面板首次打开时懒初始化配置编辑器
+            // 状态：Config 面板首次打开时懒初始化配置编辑器与提示词编辑器
             if (tab === 'config' && !this._configInited) {
                 this._configInited = true;
                 const container = document.getElementById('config-editor-container');
@@ -81,6 +82,12 @@ const App = {
                     this.configEditor = new ConfigEditor(container);
                     this.configEditor.init();
                 }
+                const promptContainer = document.getElementById('prompt-editor-container');
+                if (promptContainer) {
+                    this.promptEditor = new PromptEditor(promptContainer);
+                    this.promptEditor.init();
+                }
+                this._initConfigSubnav();
             }
 
             // 状态：Game 面板首次打开时懒初始化跑团终端
@@ -92,6 +99,27 @@ const App = {
                     this.gameClient.init();
                 }
             }
+        });
+    },
+
+    // ====================================================================
+    // Config 面板子 Tab（业务配置 / 提示词）
+    // ====================================================================
+
+    _initConfigSubnav() {
+        const subnav = document.querySelector('#panel-config .config-subnav');
+        if (!subnav) return;
+        subnav.addEventListener('click', (e) => {
+            const btn = e.target.closest('.config-subtab');
+            if (!btn) return;
+            const sub = btn.dataset.subtab;
+            // 状态：切换子 Tab 激活态与容器可见性
+            subnav.querySelectorAll('.config-subtab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const configBox = document.getElementById('config-editor-container');
+            const promptBox = document.getElementById('prompt-editor-container');
+            if (configBox) configBox.style.display = sub === 'config' ? '' : 'none';
+            if (promptBox) promptBox.style.display = sub === 'prompts' ? '' : 'none';
         });
     },
 

@@ -78,9 +78,14 @@
             <div id="state-inspector-container"></div>
         </section>
 
-        <!-- Config 面板：配置可视化编辑器 -->
+        <!-- Config 面板：业务配置 + 提示词编辑器 -->
         <section class="tab-panel" id="panel-config">
+            <div class="config-subnav">
+                <button class="tab-btn config-subtab active" data-subtab="config">业务配置</button>
+                <button class="tab-btn config-subtab" data-subtab="prompts">提示词</button>
+            </div>
             <div id="config-editor-container"></div>
+            <div id="prompt-editor-container" style="display:none"></div>
         </section>
 
         <!-- Game 面板：图形化跑团终端 -->
@@ -103,6 +108,7 @@
     <script src="/js/components/trace_viewer.js"></script>
     <script src="/js/components/state_inspector.js"></script>
     <script src="/js/components/config_editor.js"></script>
+    <script src="/js/components/prompt_editor.js"></script>
     <script src="/js/components/game_client.js"></script>
     <script src="/js/app.js"></script>
 </body>

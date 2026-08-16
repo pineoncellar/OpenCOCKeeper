@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from src.core.log import get_logger
+from src.core.prompts import get_prompt
 from src.llm import LLMResult
 from src.webui.trace_engine import (
     get_trace_bus,
@@ -54,10 +55,9 @@ _SEARCH_TOOLS = frozenset({"search_module", "query_memory", "search_rule"})
 # 检索累计次数达到该阈值后，向消息流注入收敛提示，工程侧强制引导模型交卷
 CONVERGE_HINT_AFTER = 4
 
-_CONVERGE_HINT = (
-    "你已多次检索。若信息已足够支撑本轮裁决，请立即调用 present_directive 交卷结束本轮；"
-    "若仍不足，请基于已有信息做出当前最佳裁决，不要继续重复检索。"
-)
+# 收敛提示（工程侧强制引导模型交卷）；正文外置 prompts.yaml（director.converge_hint），
+# import 时解析一次供导出/测试引用，运行时 _append_converge_hint 动态读取支持热重载
+_CONVERGE_HINT = get_prompt("director.converge_hint")
 
 
 # ====================================================================
@@ -308,13 +308,14 @@ def _append_converge_hint(messages: List[dict]) -> List[dict]:
     因此提示必须并进首条 system，保持在标准位置。
     """
     merged = list(messages)
+    hint = get_prompt("director.converge_hint")  # 状态：每次动态读配置（热重载生效）
     for i, m in enumerate(merged):
         if m.get("role") == "system":
             base = str(m.get("content") or "")
-            content = f"{base}\n\n{_CONVERGE_HINT}" if base else _CONVERGE_HINT
+            content = f"{base}\n\n{hint}" if base else hint
             merged[i] = {**m, "content": content}
             return merged
-    merged.append({"role": "system", "content": _CONVERGE_HINT})
+    merged.append({"role": "system", "content": hint})
     return merged
 
 

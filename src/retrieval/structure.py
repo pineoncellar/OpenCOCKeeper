@@ -14,20 +14,10 @@ import re
 from typing import Dict, List
 
 from ..core.config import get_settings
+from ..core.prompts import get_prompt
 
-_SYSTEM_PROMPT = (
-    "你是 TRPG 模组文档的结构划界器。你的任务是通读模组文本，将模组精准切分为适合 Keeper 查阅的“独立结构单元”，并给出每个单元起始位置在原文中逐字出现的片段（start_anchor）。\n\n"
-    "【划界原则（通用 TRPG 模组结构）】：\n"
-    "1. 顶级结构：背景真相、前言/KP须知、预设卡/角色信息、特殊规则/机制。\n"
-    "2. 探索/空间节点：所有独立的地点、房间、区域、建筑或探索场景（必须独立切分，严禁将多个地点合并为一个 Section）。\n"
-    "3. 剧情/遭遇节点：关键事件、NPC遭遇、BOSS战斗、剧情高潮。\n"
-    "4. 结算/附录节点：结局分支（包含各个结局）、结算奖励、法术/道具/材料说明。\n\n"
-    "【硬性要求】：\n"
-    "1. 只输出严格 JSON：{\"sections\": [{\"title\": \"...\", \"start_anchor\": \"...\"}]}\n"
-    "2. start_anchor 必须是原文中【100% 逐字精确匹配】的短句（优先用标题或场景名本身；若标题重复或太短，可用“标题+紧随其后5-10个字”）。\n"
-    "3. 细粒度划分：遇到包含多个子地点、子结局或子事件的文本段落时，必须拆分为独立的场景标题，严禁将大段探索/结局内容合并在一个超大标题下。\n"
-    "4. 严禁输出正文内容、严禁总结、修改或压缩——正文一个字都不许出现在 JSON 输出里。\n"
-)
+# 划界 System 指令（要求 LLM 只输出 JSON）；正文外置 prompts.yaml（retrieval.structure_system）
+_SYSTEM_PROMPT = get_prompt("retrieval.structure_system")
 
 # 兼容 LLM 偶尔用 ```json 围栏包裹输出
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
@@ -89,12 +79,13 @@ def _chunk_text(text: str, chunk_chars: int) -> List[str]:
 async def _delineate_chunk(chunk: str, tier: str) -> List[dict]:
     """单块划界：调用 LLM 并解析 JSON；调用异常或解析失败返回空。"""
     from src import llm as llm_module  # 动态取命名空间，测试可 monkeypatch
-    prompt = f"模组文本：\n\n{chunk}\n\n请严格按规则输出 JSON。"
+    # 状态：system 与 user 模板均动态读配置（热重载生效）
+    prompt = get_prompt("retrieval.structure_user", chunk=chunk)
     try:
         result = await llm_module.call_llm(
             tier,
             [
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system", "content": get_prompt("retrieval.structure_system")},
                 {"role": "user", "content": prompt},
             ],
         )
