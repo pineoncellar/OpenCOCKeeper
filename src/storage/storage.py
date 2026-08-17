@@ -703,6 +703,125 @@ class Storage:
         return [dict(r) for r in rows]
 
 
+    # ============================================
+    # 世界全量导出 / 导入（存档恢复）
+    # ============================================
+
+    def export_world(self, world_id: str) -> Optional[dict]:
+        """导出某世界四表全量数据（原始行），供全量存档；世界不存在返回 None。
+
+        JSON 列保持库内原始文本（player_ids/global_flags/attributes_and_skills/
+        inventory/tags/background/context_data/state_diff），import_world 直插即可。
+        """
+        if self.get_world(world_id) is None:
+            return None
+        with self._db.read() as conn:
+            world = conn.execute(
+                "SELECT * FROM world_state WHERE world_id = ?", (world_id,)
+            ).fetchone()
+            entities = conn.execute(
+                "SELECT * FROM entities WHERE world_id = ? ORDER BY id", (world_id,)
+            ).fetchall()
+            turns = conn.execute(
+                "SELECT * FROM recent_turns WHERE world_id = ? ORDER BY turn_num",
+                (world_id,),
+            ).fetchall()
+            history = conn.execute(
+                "SELECT * FROM chat_history_all WHERE world_id = ? ORDER BY id",
+                (world_id,),
+            ).fetchall()
+        return {
+            "world": dict(world),
+            "entities": [dict(r) for r in entities],
+            "turns": [dict(r) for r in turns],
+            "history": [dict(r) for r in history],
+        }
+
+    def import_world(self, data: dict, world_id: str) -> None:
+        """把导出的世界数据重建到 world_id（目标必须不存在，调用方先删旧世界）。
+
+        world_id 统一改写为导入目标（支持存档改名恢复）；chat_history_all 的
+        AUTOINCREMENT id 不保留（重新分配，id 仅审计用）；单事务原子，失败整体回滚。
+        """
+        if self.get_world(world_id) is not None:
+            raise StorageError(f"目标世界已存在: {world_id}，请先删除")
+        world = dict(data.get("world") or {})
+        entities = list(data.get("entities") or [])
+        turns = list(data.get("turns") or [])
+        history = list(data.get("history") or [])
+        with self._db.transaction() as conn:
+            # 世界行：world_id 改写，其余列保留（含迁移列 global_recap/module_name/status）
+            wcols = [
+                "world_id", "player_ids", "game_phase", "global_flags", "created_at",
+                "global_recap", "module_name", "status",
+            ]
+            wvals = [
+                world_id,
+                world.get("player_ids", "[]"),
+                world.get("game_phase", "EXPLORATION"),
+                world.get("global_flags", "{}"),
+                world.get("created_at") or _now_iso(),
+                world.get("global_recap", ""),
+                world.get("module_name", ""),
+                world.get("status", "ACTIVE"),
+            ]
+            conn.execute(
+                f"INSERT INTO world_state ({', '.join(wcols)}) "
+                f"VALUES ({', '.join('?' * len(wcols))})",
+                wvals,
+            )
+            # 实体
+            ecols = [
+                "world_id", "id", "type", "name", "hp", "hp_max", "mp", "mp_max",
+                "san", "san_max", "attributes_and_skills", "inventory", "tags",
+                "created_at", "updated_at", "background", "occupation",
+            ]
+            for e in entities:
+                conn.execute(
+                    f"INSERT INTO entities ({', '.join(ecols)}) "
+                    f"VALUES ({', '.join('?' * len(ecols))})",
+                    [
+                        world_id, e.get("id", ""), e.get("type", ""), e.get("name", ""),
+                        e.get("hp", 0), e.get("hp_max", 0), e.get("mp", 0),
+                        e.get("mp_max", 0), e.get("san", 0), e.get("san_max", 0),
+                        e.get("attributes_and_skills", "{}"), e.get("inventory", "[]"),
+                        e.get("tags", "[]"), e.get("created_at") or _now_iso(),
+                        e.get("updated_at") or _now_iso(),
+                        e.get("background", "{}"), e.get("occupation", ""),
+                    ],
+                )
+            # 轮次
+            tcols = [
+                "world_id", "turn_id", "turn_num", "context_data", "state_diff",
+                "created_at", "solidified",
+            ]
+            for t in turns:
+                conn.execute(
+                    f"INSERT INTO recent_turns ({', '.join(tcols)}) "
+                    f"VALUES ({', '.join('?' * len(tcols))})",
+                    [
+                        world_id, t.get("turn_id", ""), t.get("turn_num", 0),
+                        t.get("context_data", "{}"), t.get("state_diff", "{}"),
+                        t.get("created_at") or _now_iso(), t.get("solidified", 0),
+                    ],
+                )
+            # 历史冷备：不保留原 id，重新自增分配
+            for h in history:
+                conn.execute(
+                    "INSERT INTO chat_history_all (world_id, role, content, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (world_id, h.get("role", ""), h.get("content", ""),
+                     h.get("created_at") or _now_iso()),
+                )
+
+
+def _now_iso() -> str:
+    """本地时间 ISO 串（对齐库内 created_at 默认格式）。"""
+    from datetime import datetime
+
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 # ============================================
 # 全局单例
 # ============================================

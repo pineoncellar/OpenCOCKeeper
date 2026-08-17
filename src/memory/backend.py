@@ -72,6 +72,10 @@ class MemoryBackend(Protocol):
         turn_num: int,
     ) -> int: ...
 
+    def export_rag(self, world_id: str) -> list: ...
+
+    def import_rag(self, records: list, world_id: str) -> int: ...
+
     async def close(self) -> None: ...
 
 
@@ -372,6 +376,55 @@ class Mem0Memory:
             raise MemoryOperationError(
                 f"Qdrant 回档删除失败 world={world_id} turn>={turn_num}: {e}"
             ) from e
+
+    # ---- 协议实现：RAG 全量导出 / 导入（存档） ----
+
+    def export_rag(self, world_id: str) -> List[dict]:
+        """导出该世界全部记忆点（id + 向量 + payload），供全量存档恢复。"""
+        store = self._mem0().vector_store  # 状态：复用既有连接，杜绝锁冲突
+        from qdrant_client import models
+
+        records: List[dict] = []
+        offset: Any = None
+        while True:
+            res = store.client.scroll(
+                collection_name=store.collection_name,
+                scroll_filter=models.Filter(
+                    must=[models.FieldCondition(
+                        key="user_id", match=models.MatchValue(value=world_id)
+                    )]
+                ),
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=True,
+            )
+            points, offset = res
+            for p in points:
+                records.append({"id": p.id, "vector": p.vector, "payload": p.payload})
+            if offset is None:
+                break
+        logger.info("RAG 导出 world=%s 记忆=%d", world_id, len(records))
+        return records
+
+    def import_rag(self, records: List[dict], world_id: str) -> int:
+        """清空该世界旧记忆后重建：upsert 存档点（payload.user_id 改写为新 world_id）。"""
+        self.delete_since(world_id, 0)  # 状态：先清旧，幂等
+        if not records:
+            return 0
+        store = self._mem0().vector_store
+        from qdrant_client import models
+
+        points = []
+        for r in records:
+            payload = dict(r.get("payload") or {})
+            payload["user_id"] = world_id  # 状态：隔离键改写为目标世界
+            points.append(models.PointStruct(
+                id=r.get("id"), vector=r.get("vector"), payload=payload,
+            ))
+        store.client.upsert(collection_name=store.collection_name, points=points)
+        logger.info("RAG 恢复 world=%s 重建记忆=%d", world_id, len(points))
+        return len(points)
 
     # ---- 协议实现：释放 ----
 

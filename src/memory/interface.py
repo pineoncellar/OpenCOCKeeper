@@ -296,6 +296,24 @@ class Memory:
         ]
         return _merge_query_hits(hit_lists, top_k)
 
+    # ---- 核心接口：RAG 全量导出 / 导入（存档） ----
+
+    def export_rag(self, world_id: str) -> List[dict]:
+        """导出该世界全部 RAG 记忆（含向量），供全量存档；后端无实现返回空。"""
+        self._require_world(world_id)
+        fn = getattr(self._backend, "export_rag", None)
+        if fn is None:
+            return []
+        return list(fn(world_id))
+
+    def import_rag(self, records: List[dict], world_id: str) -> int:
+        """清空该世界 RAG 后按存档记录重建，返回写入条数；后端无实现返回 0。"""
+        self._require_world(world_id)
+        fn = getattr(self._backend, "import_rag", None)
+        if fn is None:
+            return 0
+        return int(fn(records, world_id))
+
     # ---- 内部：LLM 提炼与 recap ----
 
     async def _extract_events(

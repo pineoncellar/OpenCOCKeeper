@@ -138,6 +138,19 @@ class FakeMemoryBackend:
             self._store[world_id] = kept
         return removed
 
+    def export_rag(self, world_id: str) -> List[dict]:
+        """导出该世界桶内全部记忆（含 id/turn/location/ending 标记），供存档。"""
+        return [dict(item) for item in self._store.get(world_id, [])]
+
+    def import_rag(self, records: List[dict], world_id: str) -> int:
+        """清空该世界桶后按存档记录重建，返回条数。"""
+        bucket = [dict(r) for r in records if r.get("text")]
+        if bucket:
+            self._store[world_id] = bucket
+        else:
+            self._store.pop(world_id, None)
+        return len(bucket)
+
     def count(self, world_id: str) -> int:
         """某个世界桶内的记忆条数，供测试断言。"""
         return len(self._store.get(world_id, []))
@@ -288,6 +301,16 @@ class FakeMemory:
             for q in qs
         ]
         return _merge_query_hits(hit_lists, top_k)
+
+    def export_rag(self, world_id: str) -> List[dict]:
+        """与 Memory.export_rag 同签名：导出该世界内存记忆（供存档）。"""
+        self._require_world(world_id)
+        return self._backend.export_rag(world_id)
+
+    def import_rag(self, records: List[dict], world_id: str) -> int:
+        """与 Memory.import_rag 同签名：重建该世界内存记忆（供存档恢复）。"""
+        self._require_world(world_id)
+        return self._backend.import_rag(records, world_id)
 
     def _require_world(self, world_id: str) -> None:
         if self._storage.get_world(world_id) is None:

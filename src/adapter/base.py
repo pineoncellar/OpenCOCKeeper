@@ -240,8 +240,90 @@ class AbstractAdapter(ABC):
 
 
 
+        if sub == "save":
+            arg = parts[2].strip() if len(parts) > 2 else ""
+            from src.tools.world_save import list_saves, save_world
+
+            # 状态：空参或 list -> 存档列表（无需在游戏中）
+            if not arg or arg.lower() == "list":
+                saves = list_saves()
+                if not saves:
+                    return OutboundMessage.system_msg(
+                        "当前无任何存档。游戏中输入 /world save <存档名> 创建存档。",
+                        session_id=sid,
+                    )
+                lines = [f"存档列表 ({len(saves)} 个):"]
+                for s in saves:
+                    c = s.get("counts") or {}
+                    lines.append(
+                        f"  {s.get('world_id')}/{s.get('save_name')}  "
+                        f"[{s.get('module_name') or '-'}] {s.get('created_at', '')} "
+                        f"(实体{c.get('entities', 0)}/轮次{c.get('turns', 0)}/"
+                        f"记忆{c.get('rag', 0)})"
+                    )
+                lines.append("使用 /world load <世界ID> -save <存档名> 读取存档。")
+                return OutboundMessage.system_msg("\n".join(lines), session_id=sid)
+            # 状态：存档当前世界——必须在游戏中（已读取世界）
+            if not self._world_id:
+                return OutboundMessage.system_msg(
+                    "不在游戏中。先 /world load <世界ID> 或 /world start 创建世界。",
+                    level="warn", session_id=sid,
+                )
+            try:
+                meta = save_world(self.storage, self.memory, self._world_id, arg)
+            except Exception as e:  # noqa: BLE001
+                return OutboundMessage.system_msg(
+                    f"存档失败: {type(e).__name__}: {e}", level="error", session_id=sid,
+                )
+            c = meta["counts"]
+            return OutboundMessage.system_msg(
+                f"世界已存档: {self._world_id}/{arg}\n"
+                f"  模块: {meta.get('module_name') or '-'} | "
+                f"实体 {c['entities']} | 轮次 {c['turns']} | 记忆 {c['rag']}",
+                session_id=sid,
+            )
+
         if sub == "load":
-            world_id = parts[2].strip() if len(parts) > 2 else ""
+            raw = parts[2].strip() if len(parts) > 2 else ""
+            # 状态：解析存档参数 -save <存档名> / -s <存档名>，其余为世界 id
+            save_name = None
+            m = re.search(r"\s+-(?:save|s)\s+(\S+)", raw)
+            if m:
+                save_name = m.group(1)
+                world_id = raw[: m.start()].strip()
+            else:
+                world_id = raw
+            if not world_id:
+                return OutboundMessage.system_msg(
+                    "用法: /world load <世界ID> [-save <存档名>]",
+                    level="warn", session_id=sid,
+                )
+            if save_name:
+                # 状态：读取存档恢复目标世界（允许改名；已存在则自动覆盖）
+                from src.tools.world_save import restore_world
+
+                try:
+                    meta = await restore_world(
+                        self.storage, self.memory, self.worker, world_id, save_name,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.error(
+                        f"读取存档失败 world={world_id} save={save_name}: {e}"
+                    )
+                    return OutboundMessage.system_msg(
+                        f"读取存档失败: {type(e).__name__}: {e}",
+                        level="error", session_id=sid,
+                    )
+                self._world_id = world_id  # 状态：会话指向恢复后的世界
+                c = meta.get("counts") or {}
+                return OutboundMessage.system_msg(
+                    f"存档已读取: {save_name} -> 世界 {world_id}\n"
+                    f"  模块: {meta.get('module_name') or '-'} | "
+                    f"实体 {c.get('entities', 0)} | 轮次 {c.get('turns', 0)} | "
+                    f"记忆 {meta.get('rag_restored', c.get('rag', 0))}\n"
+                    f"已切换，可直接开始。",
+                    session_id=sid,
+                )
             if not world_id or self.storage.get_world(world_id) is None:
                 return OutboundMessage.system_msg(
                     f"世界不存在: {world_id}。使用 /world list 查看已有世界。",
@@ -285,6 +367,8 @@ class AbstractAdapter(ABC):
             "  /world list               - 列出所有世界\n"
             "  /world start <世界ID>     - 创建新世界（交互式输入模组名/角色卡名）\n"
             "  /world load <世界ID>      - 载入已有世界\n"
+            "  /world load <世界ID> -save <存档名>  - 读取存档恢复世界（可改名/覆盖）\n"
+            "  /world save <存档名>      - 全量存档当前世界（空参或 list 查看存档列表）\n"
             "  /world archive            - 主动结团（BD 软结局）并归档当前世界\n"
             "  /world delete <世界ID>    - 删除世界（级联 + RAG 清理）",
             level="warn", session_id=sid,
@@ -794,6 +878,8 @@ _HELP_TEXT = (
     "  /world list                - 列出所有世界\n"
     "  /world start <世界ID>      - 创建世界（交互输入模组名与角色卡名）\n"
     "  /world load <世界ID>       - 载入已有世界\n"
+    "  /world load <世界ID> -save <存档名>  - 读取存档恢复世界（可改名/覆盖）\n"
+    "  /world save <存档名>      - 全量存档当前世界（空参或 list 查看存档列表）\n"
     "  /world archive             - 主动结团（BD 软结局）并归档当前世界\n"
     "  /world delete <世界ID>     - 删除世界（级联 + RAG 清理）\n"
     "  /module list               - 列出可绑定的模组文件\n"
