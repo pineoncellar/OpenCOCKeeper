@@ -18,6 +18,7 @@ from src.agent import Director, Narrator, run_narrated_turn
 from src.core.exceptions import MemoryOperationError
 from src.memory import ConsolidationWorker, FakeMemory
 from src.memory.interface import ConsolidateResult
+from src.memory.worker import delete_world
 
 _HANDOFF = "### 规则裁决\n- 侦查成功（18/60），SAN -1，挂载 Tag [手臂流血]。"
 
@@ -238,3 +239,24 @@ async def test_run_narrated_turn_hook_failure_ok(storage, world_id, fake_llm):
     )
     assert turn.narration
     assert turn.directive.converged is True
+
+
+# ====================================================================
+# 世界删除编排（SQLite + RAG + trace 同步清理）
+# ====================================================================
+
+
+async def test_delete_world_cleans_trace(storage, world_id):
+    """删除世界：RAG/SQLite 清理后同步清空该世界 trace 目录（不留孤儿）。"""
+    from src.webui.trace_engine import make_llm_request_event
+    from src.webui.trace_store import get_trace_store
+
+    mem = FakeMemory(storage=storage)
+    store = get_trace_store()  # 状态：autouse 隔离到 tmp 目录
+    store.append(make_llm_request_event("smart", [], None, world_id=world_id, turn_num=0))
+    store.append(make_llm_request_event("smart", [], None, world_id=world_id, turn_num=1))
+    assert store.count_turns(world_id) == 2
+    await delete_world(storage, mem, world_id)
+    assert storage.get_world(world_id) is None  # SQLite 已删
+    assert store.count_turns(world_id) == 0     # trace 已同步清空
+    assert not (store._root / world_id).exists()

@@ -348,7 +348,7 @@ async def delete_world(
 
 
 async def _delete_world_unlocked(storage: Storage, memory, world_id: str) -> int:
-    """无锁删除主体：RAG 全清 -> SQLite 删除。"""
+    """无锁删除主体：RAG 全清 -> SQLite 删除 -> trace 清理。"""
     deleted = 0
     if memory is not None:
         deleted = await memory.undo(world_id, 0)  # 状态：turn>=0 全量清空该世界语义记忆
@@ -357,4 +357,11 @@ async def _delete_world_unlocked(storage: Storage, memory, world_id: str) -> int
     if not removed:
         raise WorldNotFoundError(f"世界不存在: {world_id}")
     logger.info("SQLite 删除世界 world=%s", world_id)
+    # 状态：同步清空该世界 trace（调试历史）——延迟 import 避免 memory -> webui 加载期循环依赖
+    try:
+        from src.webui.trace_store import get_trace_store
+
+        get_trace_store().delete_world(world_id)
+    except Exception as e:  # noqa: BLE001  trace 清理失败不阻断删除
+        logger.warning("删除世界时清理 trace 失败 world=%s: %s", world_id, e)
     return deleted

@@ -155,3 +155,24 @@ async def test_publish_persists_to_store(tmp_path):
     finally:
         trace_store_module.TRACE_DIR = old_dir
         trace_store_module._trace_store = None
+
+
+# ====================================================================
+# 删除世界（delete_world 编排联动清空 trace）
+# ====================================================================
+
+
+def test_delete_world_removes_turns_and_dir(store):
+    """delete_world 删除该世界全部轮次文件并移除目录，不影响其他世界。"""
+    for t in (0, 1, 2):
+        store.append(make_llm_request_event("smart", [], None, world_id="w1", turn_num=t))
+    store.append(make_llm_request_event("smart", [], None, world_id="w2", turn_num=0))
+    removed = store.delete_world("w1")
+    assert removed == 3
+    assert store.count_turns("w1") == 0
+    assert not (store._root / "w1").exists()
+    assert store.count_turns("w2") == 1  # 状态：其他世界 trace 不受影响
+
+
+def test_delete_world_missing_returns_zero(store):
+    assert store.delete_world("no_such") == 0

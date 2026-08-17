@@ -188,6 +188,36 @@ class TraceStore:
                 logger.debug("TraceStore 跳过坏行 world=%s turn=%s", world_id, turn_num)
         return events
 
+    # ---- 删除 ----
+
+    def delete_world(self, world_id: str) -> int:
+        """删除某世界的全部 trace（整目录），返回删除的轮次文件数。
+
+        供删除世界编排调用——SQLite/RAG 清理后同步清空对应 trace，
+        避免残留孤儿 trace 目录；目录不存在或删除失败返回 0（trace 属辅助，
+        失败仅记日志不阻断主流程）。路径经 _safe_world_id 清洗防穿越。
+        """
+        d = self._root / _safe_world_id(world_id)
+        if not d.exists():
+            return 0
+        try:
+            files = [p for p in d.iterdir() if p.is_file() and _TURN_RE.match(p.name)]
+            for p in files:
+                p.unlink()
+            # 状态：清空目录内其余残留文件后移除目录本身
+            for p in d.iterdir():
+                if p.is_file():
+                    p.unlink()
+            try:
+                d.rmdir()
+            except OSError:
+                pass  # 目录非空/被占用时保留，不影响删除
+            logger.info("TraceStore 删除世界 world=%s 轮次文件=%d", world_id, len(files))
+            return len(files)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("TraceStore 删除世界失败 world=%s: %s", world_id, e)
+            return 0
+
 
 # ====================================================================
 # 工具函数与全局单例
