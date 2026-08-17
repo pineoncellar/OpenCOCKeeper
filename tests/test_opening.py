@@ -123,6 +123,23 @@ async def test_opening_setup_extracts_contract(storage, world_id, fake_llm):
     assert setup.converged is True
 
 
+async def test_opening_setup_filters_truncated_memories(storage, world_id, fake_llm):
+    """seeded_memories 含截断半句（无结尾标点）时：过滤残缺，只保留完整句子入 RAG。"""
+    _seed_pc(storage, world_id)
+    fake_llm.set_response(
+        "smart",
+        _opening_step(
+            memories=(
+                "费莉西蒂在伦敦贝克街附近经营一家名为",  # 半截话（截断，无结尾标点）
+                "道格拉斯·金博尔一年前失踪未留踪迹。",    # 完整句
+                "失窃的只有五本旧书",                      # 半截话（截断，无结尾标点）
+            )
+        ),
+    )
+    setup = await run_opening_setup(storage, world_id, llm=fake_llm.call)
+    assert setup.seeded_memories == ["道格拉斯·金博尔一年前失踪未留踪迹。"]
+
+
 # ====================================================================
 # Turn 0 三件套落库
 # ====================================================================

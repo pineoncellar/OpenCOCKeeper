@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.agent.directive import NarrativeDirective
 from src.agent.loop import ToolRunner, _run_pc_background_tool, _run_search_tool, run_tool_loop
@@ -23,7 +23,10 @@ from src.agent.narrator import Narrator
 from src.agent.schemas import build_tool_schemas
 from src.core.config import get_settings
 from src.core.exceptions import OpeningError
+from src.core.log import get_logger
 from src.core.prompts import get_prompt
+
+logger = get_logger(__name__)
 
 # 默认开场裁决模型档位（可被 config.context.opening / 构造参数覆盖）
 DEFAULT_TIER = "smart"
@@ -115,6 +118,25 @@ def _accept_opening(**kwargs: Any) -> dict:
     return {"ok": True, "accepted": True, "opening": kwargs}
 
 
+# 完整句结束标点：开场前情原子事件应成句，截断的半句（无结尾标点）不写入 RAG
+_END_PUNCT = frozenset("。！？…”』）.!?~")
+
+
+def _split_complete(items: List[str]) -> Tuple[List[str], List[str]]:
+    """把条目分为（完整句，残缺句）：以结束标点结尾视为完整，否则视为截断半句。
+
+    用于过滤 LLM 在 max_tokens 触顶等情况下产出的半截话（如"…经营一家名为"），
+    保证写入 RAG 的 seed 记忆都是完整句子，避免污染语义召回。
+    """
+    complete, dropped = [], []
+    for s in items:
+        if s and s[-1] in _END_PUNCT:
+            complete.append(s)
+        else:
+            dropped.append(s)
+    return complete, dropped
+
+
 def _extract_opening_setup(
     arguments: Optional[dict], fallback: str = ""
 ) -> OpeningSetupResult:
@@ -128,6 +150,15 @@ def _extract_opening_setup(
     mems = args.get("seeded_memories") or []
     if isinstance(mems, list):
         mems = [str(m).strip() for m in mems if str(m).strip()]
+        # 状态：只保留完整句子——seeded_memories 是写 RAG 的原子事件，须成句；
+        # 模型可能产出半截话，残缺条目写入会污染召回，过滤并以日志提示（可接受降级）
+        complete, dropped = _split_complete(mems)
+        if dropped:
+            logger.warning(
+                "Opening seeded_memories 过滤残缺条目 %d/%d 条: %s",
+                len(dropped), len(mems), dropped,
+            )
+        mems = complete
     else:
         mems = []
     return OpeningSetupResult(
