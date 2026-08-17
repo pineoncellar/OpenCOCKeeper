@@ -40,7 +40,12 @@ def build_present_directive_schema() -> Dict[str, Any]:
                 "properties": {
                     "narrative_directive": {
                         "type": "string",
-                        "description": "供 Narrator 演播的 Markdown 导演手记，可含 ### 小节",
+                        "description": (
+                            "供 Narrator 演播的导演手记（Markdown）：固定按"
+                            "规则裁决/剧情推进与事实揭露/氛围与演播建议分小节，"
+                            "可选「### NPC 扮演提示」；手记是导演指令不是成品叙事，"
+                            "严禁代操玩家动作/心理/台词，严禁输出选项列表菜单"
+                        ),
                     },
                     "is_ending": {
                         "type": "boolean",
