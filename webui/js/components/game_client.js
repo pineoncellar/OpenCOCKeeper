@@ -27,7 +27,7 @@ class GameClient {
                     </div>
                     <div class="game-log" id="game-log"></div>
                     <div class="game-input-row">
-                        <input type="text" id="game-input" placeholder="输入行动... 或 /命令" autocomplete="off">
+                        <textarea id="game-input" rows="1" placeholder="输入行动... 或 /命令（Ctrl+Enter / Shift+Enter 换行）" autocomplete="off" spellcheck="false"></textarea>
                         <button class="game-btn" id="game-send">发送</button>
                     </div>
                     <div class="game-quick">
@@ -58,7 +58,20 @@ class GameClient {
         this.inputEl = this.container.querySelector('#game-input');
 
         this.container.querySelector('#game-send').addEventListener('click', () => this._sendInput());
-        this.inputEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') this._sendInput(); });
+        // 状态：Enter 无修饰键=发送消息；Ctrl+Enter / Shift+Enter / Meta+Enter（含组合）=
+        // 手动在光标处插入换行——textarea 中 Shift+Enter 默认换行但 Ctrl+Enter 无默认行为，
+        // 统一走 _insertNewline 手动插入，保证三种修饰键行为一致
+        this.inputEl.addEventListener('keydown', (ev) => {
+            if (ev.key !== 'Enter') return;
+            if (!ev.ctrlKey && !ev.metaKey && !ev.shiftKey) {
+                ev.preventDefault();
+                this._sendInput();
+            } else {
+                ev.preventDefault();
+                this._insertNewline();
+            }
+        });
+        this._bindAutoResize();
         this.container.querySelectorAll('.game-chip').forEach(chip => {
             chip.addEventListener('click', () => {
                 if (chip.dataset.fill) {
@@ -251,6 +264,28 @@ class GameClient {
     // 输入
     // ====================================================================
 
+    _bindAutoResize() {
+        // 状态：textarea 高度随内容自适应（上限 160px，超出滚动），发送后复位
+        const resize = () => {
+            this.inputEl.style.height = 'auto';
+            this.inputEl.style.height = Math.min(this.inputEl.scrollHeight, 160) + 'px';
+        };
+        this.inputEl.addEventListener('input', resize);
+        this._resizeInput = resize;
+    }
+
+    _insertNewline() {
+        // 状态：在光标处插入换行（Ctrl/Meta/Shift+Enter 统一走此路径），
+        // 光标右移一位并触发自适应高度；选中区域整体替换为单个换行
+        const el = this.inputEl;
+        const start = el.selectionStart ?? el.value.length;
+        const end = el.selectionEnd ?? el.value.length;
+        el.value = el.value.slice(0, start) + '\n' + el.value.slice(end);
+        const pos = start + 1;
+        el.selectionStart = el.selectionEnd = pos;
+        if (this._resizeInput) this._resizeInput();
+    }
+
     _sendInput() {
         const text = this.inputEl.value.trim();
         if (!text) return;
@@ -258,6 +293,8 @@ class GameClient {
         this._appendPlayer(text);
         this.ws.send({ type: text.startsWith('/') ? 'system_cmd' : 'player_input', text });
         this.inputEl.value = '';
+        // 状态：清空后复位输入框高度（_bindAutoResize 定义的回调）
+        if (this._resizeInput) this._resizeInput();
     }
 
     _sendCommand(cmd) {
