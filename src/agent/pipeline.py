@@ -240,7 +240,8 @@ async def run_narrated_turn(
     """
     if director is None:
         director = Director(
-            storage, llm=llm, tier=tier, temperature=temperature, rng=rng
+            storage, llm=llm, tier=tier, temperature=temperature, rng=rng,
+            memory=memory,
         )
     if narrator is None:
         narrator = Narrator(llm=llm)
