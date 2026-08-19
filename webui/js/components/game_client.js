@@ -19,7 +19,12 @@ class GameClient {
 
     init() {
         this.container.innerHTML = `
-            <div class="game-status" id="game-status"></div>
+            <div class="game-toolbar">
+                <div class="game-status" id="game-status"></div>
+                <label class="notify-toggle" title="叙事完成提醒：页面在后台时通过标签页标题闪烁+提示音提醒你（纯网页前端，局域网访问同样有效）">
+                    <input type="checkbox" id="game-notify"> 后台提醒
+                </label>
+            </div>
             <div class="game-layout">
                 <div class="game-main">
                     <div class="game-banner" id="game-banner">
@@ -71,7 +76,16 @@ class GameClient {
                 this._insertNewline();
             }
         });
-        this._bindAutoResize();
+        // 状态：叙事完成后台提醒（TurnNotifier，设置存 localStorage）
+        TurnNotifier.init();
+        const notifyEl = this.container.querySelector('#game-notify');
+        if (notifyEl) {
+            notifyEl.checked = TurnNotifier.enabled;
+            notifyEl.addEventListener('change', () => {
+                TurnNotifier.enabled = notifyEl.checked;
+                localStorage.setItem('coc.notify.enabled', String(notifyEl.checked));
+            });
+        }
         this.container.querySelectorAll('.game-chip').forEach(chip => {
             chip.addEventListener('click', () => {
                 if (chip.dataset.fill) {
@@ -160,6 +174,8 @@ class GameClient {
         this.logEl.appendChild(block);
         this._maybeSceneBanner(text);
         this._scrollBottom();
+        // 状态：叙事完成——页面在后台时触发提醒（标题闪烁 + 提示音）
+        TurnNotifier.notify();
     }
 
     _renderRichNarration(text) {
@@ -264,26 +280,15 @@ class GameClient {
     // 输入
     // ====================================================================
 
-    _bindAutoResize() {
-        // 状态：textarea 高度随内容自适应（上限 160px，超出滚动），发送后复位
-        const resize = () => {
-            this.inputEl.style.height = 'auto';
-            this.inputEl.style.height = Math.min(this.inputEl.scrollHeight, 160) + 'px';
-        };
-        this.inputEl.addEventListener('input', resize);
-        this._resizeInput = resize;
-    }
-
     _insertNewline() {
         // 状态：在光标处插入换行（Ctrl/Meta/Shift+Enter 统一走此路径），
-        // 光标右移一位并触发自适应高度；选中区域整体替换为单个换行
+        // 光标右移一位；选中区域整体替换为单个换行（多行在框内滚动显示）
         const el = this.inputEl;
         const start = el.selectionStart ?? el.value.length;
         const end = el.selectionEnd ?? el.value.length;
         el.value = el.value.slice(0, start) + '\n' + el.value.slice(end);
         const pos = start + 1;
         el.selectionStart = el.selectionEnd = pos;
-        if (this._resizeInput) this._resizeInput();
     }
 
     _sendInput() {
@@ -293,8 +298,6 @@ class GameClient {
         this._appendPlayer(text);
         this.ws.send({ type: text.startsWith('/') ? 'system_cmd' : 'player_input', text });
         this.inputEl.value = '';
-        // 状态：清空后复位输入框高度（_bindAutoResize 定义的回调）
-        if (this._resizeInput) this._resizeInput();
     }
 
     _sendCommand(cmd) {

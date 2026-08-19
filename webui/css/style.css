@@ -754,6 +754,50 @@ html, body {
    Game Client — 图形化跑团终端
    ==================================================================== */
 
+#game-client-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.game-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.game-toolbar .game-status {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+.notify-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 10px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.notify-toggle input {
+    accent-color: var(--accent-green);
+    cursor: pointer;
+}
+
+.notify-toggle:hover {
+    border-color: var(--accent-green);
+    color: var(--text-primary);
+}
+
 .game-status {
     padding: 6px 12px;
     border-radius: var(--radius);
@@ -769,9 +813,10 @@ html, body {
 .game-status.disconnected { color: var(--accent-red); }
 
 .game-layout {
+    flex: 1;
+    min-height: 0;
     display: flex;
     gap: 12px;
-    height: calc(100% - 32px);
 }
 
 .game-main {
@@ -780,6 +825,7 @@ html, body {
     flex-direction: column;
     gap: 8px;
     min-width: 0;
+    min-height: 0;
 }
 
 .game-banner {
@@ -806,6 +852,7 @@ html, body {
 
 .game-log {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     background: var(--bg-surface);
     border: 1px solid var(--border);
@@ -942,8 +989,11 @@ html, body {
     font-family: inherit;
     outline: none;
     resize: none;
-    max-height: 160px;
     overflow-y: auto;
+}
+
+.game-input-row textarea {
+    height: 44px;               /* 固定高度：不再随内容动态增高，多行在框内滚动 */
 }
 
 .game-input-row input:focus,
@@ -992,6 +1042,7 @@ html, body {
 .game-panel {
     width: 240px;
     flex-shrink: 0;
+    min-height: 0;
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
