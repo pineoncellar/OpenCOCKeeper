@@ -6,15 +6,14 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.13.2",
+    "mem0ai>=2.0.15",
     "pyyaml>=6.0.3",
 ]
 
-# 可选：真实 Mem0 RAG 后端（默认不安装，避免拉入重型向量库依赖）
-# 启用方式：uv add --optional rag mem0ai；不启用时可用 src.memory.FakeMemory 速跑
+# 可选组：检索增强（jieba 分词 / xlsx 角色卡 / pdf / docx 模组解析）与离线规则预处理。
+# mem0ai 已是主依赖（RAG 记忆后端）；切勿升级为 mem0ai[extras]——extras 会拉入 fastembed，
+# 触发 mem0 qdrant 默认 BM25 稀疏模型在线下载（国内网络下会卡死启动）
 [project.optional-dependencies]
-rag = [
-    "mem0ai>=0.1.0",
-]
 retrieval = [
     "jieba>=0.42.1",
     "openpyxl>=3.1.0",

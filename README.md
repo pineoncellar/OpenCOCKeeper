@@ -38,19 +38,16 @@ cp template/config.yaml.template config.yaml
 cp template/providers.ini.template providers.ini
 #    编辑 providers.ini，填入模型提供方的 base_url 与 api_key
 
-# 3.（可选）启用真实 RAG 记忆后端（默认使用 FakeMemory 免向量库速跑）
-uv add --optional rag mem0ai
-
-# 4.（可选）安装检索增强依赖（jieba 分词 / xlsx 角色卡 / pdf / docx 模组解析）
+# 3.（可选）安装检索增强依赖（jieba 分词 / xlsx 角色卡 / pdf / docx 模组解析）
 uv sync --extra retrieval
 
-# 5. 放置模组原文
+# 4. 放置模组原文
 #    将 PDF / Markdown 模组文件放入 data/modules/
 
-# 6.（可选）离线生成规则库 data/rules/*.md（用于 search_rule 规则检索）
+# 5.（可选）离线生成规则库 data/rules/*.md（用于 search_rule 规则检索）
 uv run python scripts/build_rules_from_chm.py
 
-# 7. 启动
+# 6. 启动
 uv run main.py
 ```
 
