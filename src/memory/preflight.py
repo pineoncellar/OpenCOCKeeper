@@ -94,7 +94,7 @@ async def preflight(
             PreflightCheck(
                 "依赖 mem0ai",
                 STATUS_FAIL,
-                "未安装，请运行: uv add --optional rag mem0ai",
+                "未安装，请运行: uv add mem0ai",
             )
         )
         return report  # 状态：依赖缺失，后续检查无意义

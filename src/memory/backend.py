@@ -153,7 +153,7 @@ class Mem0Memory:
             from mem0 import Memory  # 状态：惰性导入，未安装时抛出
         except ImportError as e:  # noqa: BLE001
             raise ImportError(
-                "使用真实 Mem0 后端需先安装: uv add --optional rag mem0ai"
+                "使用真实 Mem0 后端需先安装 mem0ai: uv add mem0ai"
             ) from e
         try:
             self._memory = Memory.from_config(self._build_mem0_config())
