@@ -17,6 +17,7 @@ from src.agent.opening import (
     run_opening_setup,
 )
 from src.core.exceptions import NarratorError, OpeningError
+from src.webui.trace_store import get_trace_store
 from src.memory.fake import FakeMemory
 
 
@@ -168,6 +169,40 @@ async def test_opening_narration_commits_turn0_three_part(storage, world_id, fak
     assert any("道格拉斯" in h.text for h in hits)
     # ③ 标记已固化：无未固化轮次，后台 Worker 不会对开场二次提炼
     assert storage.get_unsolidified_turns(world_id) == []
+
+
+async def test_opening_narration_publishes_trace_event(storage, world_id, fake_llm):
+    """开场演播发布 narration trace 事件（turn 0），供 WebUI SSE 与 export_dialogue 读取。"""
+    _seed_pc(storage, world_id)
+    fake_llm.set_response("smart", _opening_step())
+    fake_llm.set_response(
+        "standard",
+        "【阿诺兹堡 - 调查员事务所 - 雨后下午】\n雨后的清晨，委托人叩响了事务所的门……",
+    )
+    opened = await run_opening_narration(storage, world_id, llm=fake_llm.call)
+    # TraceStore 中 turn 0 应有一条 narration 事件，正文即开场白
+    events = get_trace_store().load_turn(world_id, 0)
+    nars = [e for e in events if e.event_type == "narration"]
+    assert nars, "开场应发布 narration trace 事件"
+    assert nars[0].turn_num == 0
+    assert nars[0].data["narration"] == opened.narration
+
+
+async def test_opening_narration_publishes_trace_event(storage, world_id, fake_llm):
+    """开场演播发布 narration trace 事件（turn 0），供 WebUI SSE 与 export_dialogue 读取。"""
+    _seed_pc(storage, world_id)
+    fake_llm.set_response("smart", _opening_step())
+    fake_llm.set_response(
+        "standard",
+        "【阿诺兹堡 - 调查员事务所 - 雨后下午】\n雨后的清晨，委托人叩响了事务所的门……",
+    )
+    opened = await run_opening_narration(storage, world_id, llm=fake_llm.call)
+    # TraceStore 中 turn 0 应有一条 narration 事件，正文即开场白
+    events = get_trace_store().load_turn(world_id, 0)
+    nars = [e for e in events if e.event_type == "narration"]
+    assert nars, "开场应发布 narration trace 事件"
+    assert nars[0].turn_num == 0
+    assert nars[0].data["narration"] == opened.narration
 
 
 async def test_opening_narration_already_opened_raises(storage, world_id):

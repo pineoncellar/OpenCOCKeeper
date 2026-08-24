@@ -8,7 +8,7 @@
              narration.data.narration = 守秘人演播文本。
              排序信任 timestamp（发布即真实顺序），不信任 turn_num——历史文件中
              player_input 常被回填为 0，narration 才是真实轮次，故按时间流渲染。
-             开场演播（turn 0）未发布 narration 事件，不在导出范围。
+             开场白（Turn 0）由 opening.py 发布 narration 事件，一并导出。
 运行: .\.venv\Scripts\python.exe scripts\export_dialogue.py --world-id world_003_module
      不带 --world-id 时列出全部可用世界；--out 指定输出路径，--dry-run 只统计不落盘。
 """

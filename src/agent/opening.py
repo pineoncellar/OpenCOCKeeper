@@ -25,6 +25,7 @@ from src.core.config import get_settings
 from src.core.exceptions import OpeningError
 from src.core.log import get_logger
 from src.core.prompts import get_prompt
+from src.webui.trace_engine import get_trace_bus, make_narration_event
 
 logger = get_logger(__name__)
 
@@ -333,6 +334,12 @@ async def run_opening_narration(
         narration = await narrator.narrate(directive, action=None, world_id=world_id)
     except Exception as e:  # noqa: BLE001  开场演播失败统一转 OpeningError
         raise OpeningError(f"开场演播失败: {type(e).__name__}: {e}") from e
+
+    # 状态：发布开场演播文本事件到 TraceBus（Turn 0）——与常规轮 pipeline.py 对齐，
+    # 使开场白进入 trace 流，WebUI SSE 与 scripts/export_dialogue.py 均可读取
+    await get_trace_bus().publish(make_narration_event(
+        narration, world_id=world_id, turn_num=0,
+    ))
 
     # 副作用后置：三件套——落 Turn 0、seed 前情记忆、标记已固化防二次提炼
     try:
