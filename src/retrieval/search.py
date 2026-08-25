@@ -25,7 +25,10 @@ def _score_sections(
     """两阶段打分（标题结构匹配加权 + BM25 全文），同步与异步检索共用。"""
     scored: List[tuple[float, int, bool]] = []
     for i, sec in enumerate(idx.sections):
-        title_match = bool(q_norm) and q_norm in idx.title_norms[i]
+        tn = idx.title_norms[i]
+        # 双向子串判定：查询提到标题名（如"导入 调查员…"→标题"导入"），
+        # 或查询是标题子串（如"背景"→"背景信息"），任一方向即结构命中  # 状态：结构优先
+        title_match = bool(q_norm) and bool(tn) and (tn in q_norm or q_norm in tn)
         score = idx.bm25.score(q_tokens, i)
         if title_match:
             score += _TITLE_BONUS
