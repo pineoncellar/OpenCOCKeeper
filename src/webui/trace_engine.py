@@ -156,6 +156,7 @@ def make_llm_response_event(
             "tier": tier,
             "success": result.success,
             "content": result.text,
+            "reasoning_content": result.reasoning_content,  # 状态：推理模式思考字段（可复盘）
             "tool_calls": result.tool_calls,
             "error": result.error,
         },

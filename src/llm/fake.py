@@ -82,13 +82,15 @@ class FakeLLM:
             )
         if isinstance(resp, LLMResult):
             return resp
-        # 状态：dict 带 tool_calls 键 → 模拟模型返回工具调用意图（Function Calling）
+        # 状态：dict 带 tool_calls 键 → 模拟模型返回工具调用意图（Function Calling）；
+        # 可带 reasoning_content 键模拟 DeepSeek 官方推理模式的思考字段，验证多轮回传
         if isinstance(resp, dict) and "tool_calls" in resp:
             return LLMResult(
                 text=resp.get("text"), tier=tier,
                 model_name=self.model_name(tier),
                 messages=messages, success=True,
                 tool_calls=resp["tool_calls"],
+                reasoning_content=resp.get("reasoning_content"),
             )
         return LLMResult(
             text=str(resp), tier=tier, model_name=self.model_name(tier),

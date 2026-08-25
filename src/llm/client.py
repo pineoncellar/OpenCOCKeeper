@@ -46,6 +46,7 @@ class LLMResult:
     tier: str                        # 模型等级: fast / standard / smart
     model_name: str                  # 实际模型名
     messages: list[dict]             # 请求消息列表（完整 prompt）
+    reasoning_content: str | None = None  # 推理模式思考内容（DeepSeek 官方多轮必须原样回传，缺失即拒）
     success: bool = True             # 是否成功
     error: str | None = None         # 错误信息
     tool_calls: list[dict] | None = None  # Function Calling 返回的工具调用意图
@@ -241,11 +242,16 @@ async def call_llm(
                     message = choices[0].get("message", {})
                     content = message.get("content", "")
                     tool_calls = _parse_tool_calls(message.get("tool_calls"))
+                    # 状态：推理模式（DeepSeek 官方等）响应携带 reasoning_content 思考字段，
+                    # 必须随 LLMResult 透传，供 Function Calling 回填时原样带回复用；
+                    # 否则多轮回传缺失该字段，DeepSeek 官方 API 直接拒绝请求
+                    reasoning = message.get("reasoning_content") or None
 
                     return LLMResult(text=content, tier=tier,
                                      model_name=model_config["model_name"],
                                      messages=messages, success=True,
-                                     tool_calls=tool_calls)
+                                     tool_calls=tool_calls,
+                                     reasoning_content=reasoning)
 
         except asyncio.TimeoutError:
             last_error = f"超时 ({timeout}s)"

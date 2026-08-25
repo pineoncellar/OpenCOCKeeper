@@ -356,6 +356,51 @@ async def test_tool_loop_keeps_thought_in_backfill(world_id, fake_llm):
     assert backfill[0].get("content") == "接触面判定：这扇铁门表面能反馈什么"
 
 
+async def test_tool_loop_backfills_reasoning_content(world_id, fake_llm):
+    """DeepSeek 官方推理模式兼容：模型 tool_calls 轮返回 reasoning_content 时，
+    回填的 assistant 消息须原样携带该字段——官方 API 多轮回传缺失即拒绝请求。"""
+    runner = ToolRunner()
+    runner.register("spy", lambda **kw: {"ok": True})
+
+    def step(messages):
+        if any(m["role"] == "tool" for m in messages):
+            return "收敛：检定成功，剧情推进。"
+        return {"text": "表层思考", "reasoning_content": "深层思考：分析铁门结构",
+                "tool_calls": [{"id": "c", "name": "spy", "arguments": {}}]}
+
+    fake_llm.set_response("smart", step)
+    result = await run_tool_loop(
+        fake_llm.call, "smart", [{"role": "user", "content": "观察铁门"}],
+        build_tool_schemas(), runner, world_id=world_id, turn_num=1,
+    )
+    assert result.converged is True
+    # 回填的 assistant 消息须带当步 reasoning_content（非空才写，非推理模型零侵入）
+    backfill = [m for m in result.final.messages if m["role"] == "assistant"]
+    assert len(backfill) == 1
+    assert backfill[0].get("reasoning_content") == "深层思考：分析铁门结构"
+
+
+async def test_tool_loop_omits_reasoning_when_absent(world_id, fake_llm):
+    """非推理模型不返回 reasoning_content 时，回填消息不得凭空造该键。"""
+    runner = ToolRunner()
+    runner.register("spy", lambda **kw: {"ok": True})
+
+    def step(messages):
+        if any(m["role"] == "tool" for m in messages):
+            return "收敛。"
+        return {"text": "表层思考", "tool_calls": [{"id": "c", "name": "spy", "arguments": {}}]}
+
+    fake_llm.set_response("smart", step)
+    result = await run_tool_loop(
+        fake_llm.call, "smart", [{"role": "user", "content": "观察铁门"}],
+        build_tool_schemas(), runner, world_id=world_id, turn_num=1,
+    )
+    assert result.converged is True
+    backfill = [m for m in result.final.messages if m["role"] == "assistant"]
+    assert len(backfill) == 1
+    assert "reasoning_content" not in backfill[0]
+
+
 async def test_tool_loop_thought_persisted_to_trace(world_id, fake_llm):
     """显式思考计入 Trace：llm_response 记录当步思考正文，
     后续 llm_request 回填消息含上一步思考正文（ReAct 思考流全链路可复盘）。"""
