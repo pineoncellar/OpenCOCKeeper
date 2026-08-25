@@ -1467,6 +1467,22 @@ html, body {
     padding: 4px 10px;
 }
 
+/* 链节点：ReAct 中间步思考正文（思考摘要直显 + 推理链折叠） */
+.chain-node.thought {
+    background: var(--bg-surface);
+    border-left: 3px solid var(--accent-purple);
+    color: var(--text-secondary);
+    padding: 6px 10px;
+}
+
+.chain-node.thought .thought-text {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 .chain-node .chain-prompt {
     margin-top: 6px;
     padding: 6px 8px;

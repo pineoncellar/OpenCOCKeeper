@@ -367,7 +367,9 @@ class TraceViewer {
     _renderLLMResponse(event) {
         const data = event.data || {};
         if (data.tool_calls && data.tool_calls.length > 0) {
-            // 状态：LLM 返回了工具调用，tool_call 事件会单独渲染
+            // 状态：中间步（ReAct 思考 + 工具调用）——tool_call 事件单独渲染，
+            // 思考正文在此呈现，形成"先思考后行动"的阅读链（SSE 逐步推送下实时可见）
+            this._renderThought(data);
             return;
         }
         if (data.content) {
@@ -380,6 +382,34 @@ class TraceViewer {
             this.chainEl.appendChild(node);
             this.chainNodes.push(node);
         }
+    }
+
+    _renderThought(data) {
+        // 思考正文：优先 content（模型主动输出的思考摘要），缺失退到 reasoning_content（推理链）
+        const thought = data.content || '';
+        const reasoning = data.reasoning_content || '';
+        if (!thought && !reasoning) return;
+        const node = document.createElement('div');
+        node.className = 'chain-node thought';
+        const tag = document.createElement('span');
+        tag.className = 'chain-tag';
+        tag.textContent = '思考';
+        node.appendChild(tag);
+        // 思考摘要直接展示
+        if (thought) {
+            const text = document.createElement('div');
+            text.className = 'thought-text';
+            text.textContent = thought;
+            node.appendChild(text);
+        }
+        // 完整推理链折叠展开（调试复盘用；与摘要重复则不展示）
+        if (reasoning && reasoning !== thought) {
+            node.insertAdjacentHTML('beforeend',
+                `<span class="chain-expand">展开推理链</span>`);
+            this._attachExpand(node, '.chain-expand', '推理链', reasoning);
+        }
+        this.chainEl.appendChild(node);
+        this.chainNodes.push(node);
     }
 
     _renderToolCall(event) {
