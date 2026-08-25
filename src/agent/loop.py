@@ -319,11 +319,24 @@ def _append_converge_hint(messages: List[dict]) -> List[dict]:
     return merged
 
 
-def _build_assistant_tool_message(tool_calls: List[dict]) -> dict:
-    """把归一化的 tool_calls 拼回 OpenAI 传输格式的 assistant 消息。"""
-    return {
+def _build_assistant_tool_message(
+    tool_calls: List[dict],
+    content: Optional[str] = None,
+    reasoning_content: Optional[str] = None,
+) -> dict:
+    """把归一化的 tool_calls 拼回 OpenAI 传输格式的 assistant 消息。
+
+    content 传模型当步思考正文（ReAct 思考流）：保留原文回填，使思考在下一轮
+    上下文延续推演；模型未输出思考（None）时维持空，符合 Function Calling 协议。
+
+    reasoning_content 为推理模型（DeepSeek 官方推理模式等）的思考字段：
+    非空时原样带回 assistant 消息——DeepSeek 官方 API 要求多轮回传时必须携带
+    该字段，缺失即拒绝请求（invalid_request_error: reasoning_content must be
+    passed back to the API）；非推理模型不返回则不加，避免画蛇添足。
+    """
+    msg = {
         "role": "assistant",
-        "content": None,
+        "content": content,
         "tool_calls": [
             {
                 "id": tc["id"],
@@ -336,6 +349,9 @@ def _build_assistant_tool_message(tool_calls: List[dict]) -> dict:
             for tc in tool_calls
         ],
     }
+    if reasoning_content:  # 状态：仅当模型确实返回思考内容才带回，维持对非推理模型的零侵入
+        msg["reasoning_content"] = reasoning_content
+    return msg
 
 
 async def run_tool_loop(
@@ -442,7 +458,13 @@ async def run_tool_loop(
             "工具闭环 第 %d/%d 轮返回 %d 个工具调用 world=%s turn=%s",
             i, max_iterations, len(result.tool_calls), world_id, turn_num,
         )
-        current.append(_build_assistant_tool_message(result.tool_calls))
+        # 状态：把模型当步思考正文 + 推理模式思考字段一并回填，让 ReAct 思考流在下一轮
+        # 上下文延续；reasoning_content 必须原样带回，否则 DeepSeek 官方拒绝后续请求
+        current.append(_build_assistant_tool_message(
+            result.tool_calls,
+            content=result.text,
+            reasoning_content=result.reasoning_content,
+        ))
         for tc in result.tool_calls:
             if tc["name"] in _SEARCH_TOOLS:  # 状态：累计检索次数用于触发收敛提示
                 search_count += 1

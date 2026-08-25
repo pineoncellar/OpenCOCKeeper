@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 import random
 
 import pytest
@@ -330,3 +331,76 @@ async def test_tool_loop_stop_tool_converges_and_extracts(storage, world_id, fak
     # 只执行了首轮 manage_tags，收尾工具不执行
     assert len(result.tool_calls) == 1
     assert result.tool_calls[0]["name"] == "manage_tags"
+
+
+async def test_tool_loop_keeps_thought_in_backfill(world_id, fake_llm):
+    """ReAct 思考流：模型在 tool_calls 时输出的 content 思考正文须回填进下一轮上下文。"""
+    runner = ToolRunner()
+    runner.register("spy", lambda **kw: {"ok": True})
+
+    def step(messages):
+        if any(m["role"] == "tool" for m in messages):
+            return "收敛：检定成功，剧情推进。"
+        return {"text": "接触面判定：这扇铁门表面能反馈什么", "tool_calls": [
+            {"id": "c", "name": "spy", "arguments": {}}]}
+
+    fake_llm.set_response("smart", step)
+    result = await run_tool_loop(
+        fake_llm.call, "smart", [{"role": "user", "content": "观察铁门"}],
+        build_tool_schemas(), runner, world_id=world_id, turn_num=1,
+    )
+    assert result.converged is True
+    # 首轮回填的 assistant 消息须保留当步思考正文，供下一轮延续推演
+    backfill = [m for m in result.final.messages if m["role"] == "assistant"]
+    assert len(backfill) == 1
+    assert backfill[0].get("content") == "接触面判定：这扇铁门表面能反馈什么"
+
+
+async def test_tool_loop_thought_persisted_to_trace(world_id, fake_llm):
+    """显式思考计入 Trace：llm_response 记录当步思考正文，
+    后续 llm_request 回填消息含上一步思考正文（ReAct 思考流全链路可复盘）。"""
+    from src.webui import trace_store as ts
+
+    runner = ToolRunner()
+    runner.register("spy", lambda **kw: {"ok": True})
+    # 前两轮带思考正文发起工具调用，第三轮纯文本收敛
+    thoughts = iter(["思考1：接触面判定", "思考2：信息已足"])
+
+    def step(messages):
+        try:
+            text = next(thoughts)
+        except StopIteration:
+            return "收敛：剧情推进。"
+        return {"text": text, "tool_calls": [{"id": "c", "name": "spy", "arguments": {}}]}
+
+    fake_llm.set_response("smart", step)
+    result = await run_tool_loop(
+        fake_llm.call, "smart", [{"role": "user", "content": "观察铁门"}],
+        build_tool_schemas(), runner, world_id=world_id, turn_num=1,
+    )
+    assert result.converged is True
+    assert result.iterations == 3
+    # 读落盘的 turn-000001.jsonl，验证思考正文进入 Trace 全链路
+    trace_file = ts._turn_path(ts.TRACE_DIR, world_id, 1)
+    events = [
+        json.loads(line)
+        for line in trace_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    # 响应侧：每条 llm_response 完整记录当步思考正文
+    resp_contents = [
+        e["data"].get("content") for e in events if e["event_type"] == "llm_response"
+    ]
+    assert resp_contents[:2] == ["思考1：接触面判定", "思考2：信息已足"]
+    assert resp_contents[-1] == "收敛：剧情推进。"
+    # 回填侧：第二/三轮 llm_request 的消息里含前一轮回填的思考正文
+    reqs = [e for e in events if e["event_type"] == "llm_request"]
+    assert len(reqs) == 3
+    assert any(
+        m.get("role") == "assistant" and m.get("content") == "思考1：接触面判定"
+        for m in reqs[1]["data"]["messages"]
+    )
+    assert any(
+        m.get("role") == "assistant" and m.get("content") == "思考2：信息已足"
+        for m in reqs[2]["data"]["messages"]
+    )

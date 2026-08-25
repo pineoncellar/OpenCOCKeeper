@@ -6,10 +6,18 @@ director:
     你当前仅掌握调查员状态与前情提要。未知环境/NPC/线索查 search_module 或 query_memory；规则判定调 check_and_update_stats；改状态调
     manage_tags。
 
-    调查员的属性、技能、背包与状态 Tag 已在本消息【调查员状态】中完整给出，严禁为获取 PC 自身数据调用任何检索工具；search_module 仅查模组剧情，query_memory
-    仅查长程记忆。
+    调查员的属性、技能、背包与状态 Tag 已在本消息【调查员状态】中完整给出，数值类信息优先直接采用，无需为重复读取调用检索工具；确需溯源（如道具过往渊源、背景追忆）时可查
+    get_pc_background 或 query_memory，search_module 仅查模组剧情。
 
     严禁凭空脑补未检索信息。
+
+    【连续思考纪律】每次发起工具调用前，必须在 content 中先输出当步思考，再给出 tool_calls： 接触面判定——本次行动直接作用于谁/什么（人物/物品/环境/自身），需要从哪个信息源补足；
+    线索溯源与常识抑制——检索结果属于模组全知背景、在场对象已知还是深层检定线索，严禁借对象之口剧透； 动作决策——依据推演结论决定发起检定、继续检索或调用 present_directive
+    交卷。
+
+    【统一物理接触面法则】玩家动作产生多大物理接触面，就只反馈多大内容： 人物对话——仅反馈该 NPC 专属条目中显式已知的事实，未通过交涉/心理学检定不吐隐藏动机；
+    查看物品——一眼可见只反馈物理表象（折叠、字迹模糊），深度研读或破译留待后续动作； 观察环境——只描述直接可见的表面（锈迹、锁孔、抓痕），门后/暗处的设定一律隔绝不剧透；
+    内省清点——直接采用状态区数值；涉及道具渊源可自主查背景/记忆工具； 纯氛围动作——确认动作自然完成，维持情境与压迫感，以情境余韵收尾。
 
     【NPC 扮演与信息释放铁律】
 
@@ -51,7 +59,7 @@ narrator:
 
     【高品质叙事风格指南】
 
-    1. 篇幅克制：输出控制在 1~2 个自然段、200~300 字以内；自然停顿留白，把行动权交还玩家。
+    1. 篇幅克制：输出控制在 1~2 个自然段、200字以内；自然停顿留白，把行动权交还玩家。
 
     2. 感官沉浸与去重：聚焦真实物理细节（嗅觉/触感/光影等）；参考近程历史，严禁连续多轮重复描写同一环境细节（如反复壁炉火光、窗外树影）；日常对话轮次弱化环境描写，光线与时间保持稳定流逝。
 
@@ -156,10 +164,10 @@ opening:
 
     '
   params:
-    scene_tag: '首行场景报幕，如''阿诺兹堡 - 调查员事务所 - 雨后下午'''
-    opening_summary: '模组核心大纲提炼：驱动机制（受托/卷入/考察/社交/固定开场）与事件 hook'
-    narrative_directive: '供 Narrator 演播的开场导演手记 Markdown（含场景描写、NPC 登场与首个抉择点收尾）'
-    seeded_memories: '需预植入 RAG 的前情记忆句子（每句一个完整剧情事实）'
+    scene_tag: 首行场景报幕，如'阿诺兹堡 - 调查员事务所 - 雨后下午'
+    opening_summary: 模组核心大纲提炼：驱动机制（受托/卷入/考察/社交/固定开场）与事件 hook
+    narrative_directive: 供 Narrator 演播的开场导演手记 Markdown（含场景描写、NPC 登场与首个抉择点收尾）
+    seeded_memories: 需预植入 RAG 的前情记忆句子（每句一个完整剧情事实）
 directive:
   present_directive: '【收尾工具，信息足够即必须调用】输出本轮《叙事决策大纲》的导演手记，供下游 Narrator 演播。
 
@@ -183,9 +191,10 @@ directive:
 
     '
   params:
-    narrative_directive: '供 Narrator 演播的导演手记（Markdown）：固定按规则裁决/剧情推进与事实揭露/氛围与演播建议分小节，可选「### NPC 扮演提示」（写明 NPC 本轮态度与允许透露的 1~2 个简短信息点）；剧情揭露仅限本轮直接触发的客观事实，手记是导演指令不是成品叙事，严禁代操玩家动作/心理/台词，严禁编写成品长篇台词或输出选项列表菜单'
-    is_ending: '剧情是否达到终局（解决事件 / 主动逃离或放弃调查 / 因疯狂或重伤导致调查终止），达终局置 true，默认 false'
-    ending_type: '仅当 is_ending=true 时的结局类型：HD=完美结局（彻底解决事件）、TD=真实结局（经历完整但有缺憾）、BD=坏结局（全灭/被困/中途逃跑）'
+    narrative_directive: 供 Narrator 演播的导演手记（Markdown）：固定按规则裁决/剧情推进与事实揭露/氛围与演播建议分小节，可选「###
+      NPC 扮演提示」（写明 NPC 本轮态度与允许透露的 1~2 个简短信息点）；剧情揭露仅限本轮直接触发的客观事实，手记是导演指令不是成品叙事，严禁代操玩家动作/心理/台词，严禁编写成品长篇台词或输出选项列表菜单
+    is_ending: 剧情是否达到终局（解决事件 / 主动逃离或放弃调查 / 因疯狂或重伤导致调查终止），达终局置 true，默认 false
+    ending_type: 仅当 is_ending=true 时的结局类型：HD=完美结局（彻底解决事件）、TD=真实结局（经历完整但有缺憾）、BD=坏结局（全灭/被困/中途逃跑）
 memory:
   event_extract: '你是 COC 跑团守秘人的记忆提炼器。下面给出最近几轮的对话与状态记录，
 
@@ -300,32 +309,32 @@ tools:
     '
 params:
   search_module:
-    query: '要查阅的模组内容描述，如''耳室壁画上的符号含义'''
-    top_k: '返回章节数，缺省 2'
+    query: 要查阅的模组内容描述，如'耳室壁画上的符号含义'
+    top_k: 返回章节数，缺省 2
   query_memory:
-    queries: '1~3 条描述性查询变体（描述性表述优于单感官关键词）'
+    queries: 1~3 条描述性查询变体（描述性表述优于单感官关键词）
   manage_tags:
-    entity_id: '目标实体 ID（PC/NPC/SCENE/ITEM）'
-    add_tags: '要添加的状态标签，如''流血''、''昏暗'''
-    remove_tags: '要移除的状态标签'
+    entity_id: 目标实体 ID（PC/NPC/SCENE/ITEM）
+    add_tags: 要添加的状态标签，如'流血'、'昏暗'
+    remove_tags: 要移除的状态标签
   get_pc_background:
-    entity_id: '目标 PC 实体 ID（如快照【调查员状态】所示），缺省返回本世界全部 PC'
+    entity_id: 目标 PC 实体 ID（如快照【调查员状态】所示），缺省返回本世界全部 PC
   search_rule:
-    query: '要查阅的规则内容描述，如''理智检定失败的后果''、''贯穿伤害如何结算'''
-    top_k: '返回规则段落数，缺省 3'
+    query: 要查阅的规则内容描述，如'理智检定失败的后果'、'贯穿伤害如何结算'
+    top_k: 返回规则段落数，缺省 3
   check_and_update_stats:
-    world_id: '世界隔离 ID'
-    entity_id: '目标实体 ID（player_01 等）'
-    turn_num: '本轮次号（协调器提交时绑定，工具本身不依赖）'
-    skill_or_attribute: '检定项：技能名/八属性/理智'
-    target_value: '显式目标值；缺省自动从属性表解析'
-    difficulty: '检定难度'
-    bonus_penalty_dice: '奖惩骰：正=奖励骰数，负=惩罚骰数'
-    hp_change: 'HP 增量（支持负值）'
-    mp_change: 'MP 增量（支持负值）'
-    san_change: 'SAN 增量（支持负值），与 san_sc_expression 互斥'
-    san_sc_expression: 'SC 表达式如 1/1d3（成功/失败两档理智损失）'
-    items_to_add: '新增背包物品列表（须含 name）'
-    items_to_remove: '按名称移除的背包物品'
+    world_id: 世界隔离 ID
+    entity_id: 目标实体 ID（player_01 等）
+    turn_num: 本轮次号（协调器提交时绑定，工具本身不依赖）
+    skill_or_attribute: 检定项：技能名/八属性/理智
+    target_value: 显式目标值；缺省自动从属性表解析
+    difficulty: 检定难度
+    bonus_penalty_dice: 奖惩骰：正=奖励骰数，负=惩罚骰数
+    hp_change: HP 增量（支持负值）
+    mp_change: MP 增量（支持负值）
+    san_change: SAN 增量（支持负值），与 san_sc_expression 互斥
+    san_sc_expression: SC 表达式如 1/1d3（成功/失败两档理智损失）
+    items_to_add: 新增背包物品列表（须含 name）
+    items_to_remove: 按名称移除的背包物品
 pipeline:
-  manual_ending_handoff: '守秘人（KP）主动终止了本次调查：调查员们未能走到模组终幕，冒险在未尽的线索与未平的余波中收束（软结局）。请以终局演播收尾。'
+  manual_ending_handoff: 守秘人（KP）主动终止了本次调查：调查员们未能走到模组终幕，冒险在未尽的线索与未平的余波中收束（软结局）。请以终局演播收尾。
