@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from src.agent.directive import build_present_directive_schema
-from src.core.prompts import get_tool_desc
+from src.core.prompts import get_prompt, get_tool_desc
 from src.tools.schemas import to_openai_function_schema as _stats_parameters
 
 # 注入参数：由 ToolRunner 在 execute 时强制注入，模型不可见、schema 中剔除
@@ -51,8 +51,8 @@ def _search_module_schema() -> Dict[str, Any]:
     return {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "要查阅的模组内容描述，如'耳室壁画上的符号含义'"},
-            "top_k": {"type": "integer", "description": "返回章节数，缺省 2"},
+            "query": {"type": "string", "description": get_prompt("params.search_module.query")},
+            "top_k": {"type": "integer", "description": get_prompt("params.search_module.top_k")},
         },
         "required": ["query"],
     }
@@ -66,7 +66,7 @@ def _query_memory_schema() -> Dict[str, Any]:
             "queries": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "1~3 条描述性查询变体（描述性表述优于单感官关键词）",
+                "description": get_prompt("params.query_memory.queries"),
             }
         },
         "required": ["queries"],
@@ -78,16 +78,16 @@ def _manage_tags_schema() -> Dict[str, Any]:
     return {
         "type": "object",
         "properties": {
-            "entity_id": {"type": "string", "description": "目标实体 ID（PC/NPC/SCENE/ITEM）"},
+            "entity_id": {"type": "string", "description": get_prompt("params.manage_tags.entity_id")},
             "add_tags": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "要添加的状态标签，如'流血'、'昏暗'",
+                "description": get_prompt("params.manage_tags.add_tags"),
             },
             "remove_tags": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "要移除的状态标签",
+                "description": get_prompt("params.manage_tags.remove_tags"),
             },
         },
         "required": ["entity_id"],
@@ -101,7 +101,7 @@ def _get_pc_background_schema() -> Dict[str, Any]:
         "properties": {
             "entity_id": {
                 "type": "string",
-                "description": "目标 PC 实体 ID（如快照【调查员状态】所示），缺省返回本世界全部 PC",
+                "description": get_prompt("params.get_pc_background.entity_id"),
             },
         },
     }
@@ -114,9 +114,9 @@ def _search_rule_schema() -> Dict[str, Any]:
         "properties": {
             "query": {
                 "type": "string",
-                "description": "要查阅的规则内容描述，如'理智检定失败的后果'、'贯穿伤害如何结算'",
+                "description": get_prompt("params.search_rule.query"),
             },
-            "top_k": {"type": "integer", "description": "返回规则段落数，缺省 3"},
+            "top_k": {"type": "integer", "description": get_prompt("params.search_rule.top_k")},
         },
         "required": ["query"],
     }

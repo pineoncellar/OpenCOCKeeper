@@ -40,30 +40,16 @@ def build_present_directive_schema() -> Dict[str, Any]:
                 "properties": {
                     "narrative_directive": {
                         "type": "string",
-                        "description": (
-                            "供 Narrator 演播的导演手记（Markdown）：固定按"
-                            "规则裁决/剧情推进与事实揭露/氛围与演播建议分小节，"
-                            "可选「### NPC 扮演提示」（写明 NPC 本轮态度与允许透露的"
-                            "1~2 个简短信息点）；剧情揭露仅限本轮直接触发的客观事实，"
-                            "手记是导演指令不是成品叙事，严禁代操玩家动作/心理/台词，"
-                            "严禁编写成品长篇台词或输出选项列表菜单"
-                        ),
+                        "description": get_prompt("directive.params.narrative_directive"),
                     },
                     "is_ending": {
                         "type": "boolean",
-                        "description": (
-                            "剧情是否达到终局（解决事件 / 主动逃离或放弃调查 / "
-                            "因疯狂或重伤导致调查终止），达终局置 true，默认 false"
-                        ),
+                        "description": get_prompt("directive.params.is_ending"),
                     },
                     "ending_type": {
                         "type": "string",
                         "enum": [ENDING_TYPE_HD, ENDING_TYPE_TD, ENDING_TYPE_BD],
-                        "description": (
-                            "仅当 is_ending=true 时的结局类型："
-                            "HD=完美结局（彻底解决事件）、TD=真实结局（经历完整但有缺憾）、"
-                            "BD=坏结局（全灭/被困/中途逃跑）"
-                        ),
+                        "description": get_prompt("directive.params.ending_type"),
                     },
                 },
                 "required": ["narrative_directive"],

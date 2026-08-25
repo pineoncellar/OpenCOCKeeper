@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from ..core.exceptions import ConflictingInputError, EmptyUpdateError
+from ..core.prompts import get_prompt
 
 
 @dataclass
@@ -92,19 +93,19 @@ def to_openai_function_schema() -> Dict[str, Any]:
     return {
         "type": "object",
         "properties": {
-            "world_id": {"type": "string", "description": "世界隔离 ID"},
-            "entity_id": {"type": "string", "description": "目标实体 ID（player_01 等）"},
-            "turn_num": {"type": "integer", "description": "本轮次号（协调器提交时绑定，工具本身不依赖）"},
-            "skill_or_attribute": {"type": "string", "description": "检定项：技能名/八属性/理智"},
-            "target_value": {"type": "integer", "description": "显式目标值；缺省自动从属性表解析"},
-            "difficulty": {"type": "string", "enum": ["regular", "hard", "extreme"], "description": "检定难度"},
-            "bonus_penalty_dice": {"type": "integer", "description": "奖惩骰：正=奖励骰数，负=惩罚骰数"},
-            "hp_change": {"type": "integer", "description": "HP 增量（支持负值）"},
-            "mp_change": {"type": "integer", "description": "MP 增量（支持负值）"},
-            "san_change": {"type": "integer", "description": "SAN 增量（支持负值），与 san_sc_expression 互斥"},
-            "san_sc_expression": {"type": "string", "description": "SC 表达式如 1/1d3（成功/失败两档理智损失）"},
-            "items_to_add": {"type": "array", "items": {"type": "object"}, "description": "新增背包物品列表（须含 name）"},
-            "items_to_remove": {"type": "array", "items": {"type": "string"}, "description": "按名称移除的背包物品"},
+            "world_id": {"type": "string", "description": get_prompt("params.check_and_update_stats.world_id")},
+            "entity_id": {"type": "string", "description": get_prompt("params.check_and_update_stats.entity_id")},
+            "turn_num": {"type": "integer", "description": get_prompt("params.check_and_update_stats.turn_num")},
+            "skill_or_attribute": {"type": "string", "description": get_prompt("params.check_and_update_stats.skill_or_attribute")},
+            "target_value": {"type": "integer", "description": get_prompt("params.check_and_update_stats.target_value")},
+            "difficulty": {"type": "string", "enum": ["regular", "hard", "extreme"], "description": get_prompt("params.check_and_update_stats.difficulty")},
+            "bonus_penalty_dice": {"type": "integer", "description": get_prompt("params.check_and_update_stats.bonus_penalty_dice")},
+            "hp_change": {"type": "integer", "description": get_prompt("params.check_and_update_stats.hp_change")},
+            "mp_change": {"type": "integer", "description": get_prompt("params.check_and_update_stats.mp_change")},
+            "san_change": {"type": "integer", "description": get_prompt("params.check_and_update_stats.san_change")},
+            "san_sc_expression": {"type": "string", "description": get_prompt("params.check_and_update_stats.san_sc_expression")},
+            "items_to_add": {"type": "array", "items": {"type": "object"}, "description": get_prompt("params.check_and_update_stats.items_to_add")},
+            "items_to_remove": {"type": "array", "items": {"type": "string"}, "description": get_prompt("params.check_and_update_stats.items_to_remove")},
         },
         "required": ["world_id", "entity_id"],
     }

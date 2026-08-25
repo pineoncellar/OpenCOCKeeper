@@ -52,20 +52,20 @@ def build_present_opening_schema() -> Dict[str, Any]:
                 "properties": {
                     "scene_tag": {
                         "type": "string",
-                        "description": "首行场景报幕，如'阿诺兹堡 - 调查员事务所 - 雨后下午'",
+                        "description": get_prompt("opening.params.scene_tag"),
                     },
                     "opening_summary": {
                         "type": "string",
-                        "description": "模组核心大纲提炼：驱动机制（受托/卷入/考察/社交/固定开场）与事件 hook",
+                        "description": get_prompt("opening.params.opening_summary"),
                     },
                     "narrative_directive": {
                         "type": "string",
-                        "description": "供 Narrator 演播的开场导演手记 Markdown（含场景描写、NPC 登场与首个抉择点收尾）",
+                        "description": get_prompt("opening.params.narrative_directive"),
                     },
                     "seeded_memories": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "需预植入 RAG 的前情记忆句子（每句一个完整剧情事实）",
+                        "description": get_prompt("opening.params.seeded_memories"),
                     },
                 },
                 "required": ["scene_tag", "narrative_directive", "seeded_memories"],

@@ -27,6 +27,7 @@ from src.agent.narrator import Narrator
 from src.core.config import get_settings
 from src.core.exceptions import EndingError
 from src.core.log import get_logger
+from src.core.prompts import get_prompt
 from src.tools.commit import apply_turn_change
 from src.webui.trace_engine import (
     get_trace_bus,
@@ -36,11 +37,10 @@ from src.webui.trace_engine import (
 
 logger = get_logger(__name__)
 
-# /world archive 主动结团的默认导演手记（BD 软结局：未走到模组终幕由 KP 收束）
-_MANUAL_ENDING_HANDOFF = (
-    "守秘人（KP）主动终止了本次调查：调查员们未能走到模组终幕，"
-    "冒险在未尽的线索与未平的余波中收束（软结局）。请以终局演播收尾。"
-)
+def _manual_ending_handoff() -> str:
+    """/world archive 主动结团的默认导演手记（BD 软结局：未走到模组终幕由 KP 收束）。
+    正文外置 prompts.yaml（pipeline.manual_ending_handoff），运行时动态读取支持热重载。"""
+    return get_prompt("pipeline.manual_ending_handoff")
 
 
 @dataclass
@@ -92,7 +92,7 @@ def prepare_manual_ending(
         if cd.get("is_ending"):
             return NarrativeDirective(
                 state_changes={},
-                narrative_directive=cd.get("directive") or _MANUAL_ENDING_HANDOFF,
+                narrative_directive=cd.get("directive") or _manual_ending_handoff(),
                 turn_num=t["turn_num"],
                 converged=False,
                 is_ending=True,
@@ -101,7 +101,7 @@ def prepare_manual_ending(
     et = str(ending_type).strip().upper()
     if et not in ENDING_TYPES:
         et = "BD"
-    handoff = (handoff or _MANUAL_ENDING_HANDOFF).strip()
+    handoff = (handoff or _manual_ending_handoff()).strip()
     turn_num = storage.next_turn_num(world_id)
     apply_turn_change(
         storage,
