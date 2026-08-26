@@ -197,9 +197,9 @@ async def call_llm(
         "messages": messages,
         "temperature": temperature if temperature is not None else model_config.get("temperature", 0.7),
         "max_tokens": max_tokens if max_tokens is not None else model_config.get("max_tokens", 1000),
-        "stream": False,
+        "stream": True,  # 状态：全链路统一流式输出，见下方 SSE 聚合逻辑
     }
-    if tools:  # 状态：提供工具清单时启用 Function Calling
+    if tools:  # 状态：提供工具清单时启用 Function Calling（流式下同样透传）
         body["tools"] = tools
 
     last_error: str | None = None
@@ -211,7 +211,9 @@ async def call_llm(
                     api_url,
                     headers=headers,
                     json=body,
-                    timeout=aiohttp.ClientTimeout(total=timeout),
+                    # 流式长叙事可能远超 total 上限；改按"两次读取间隔"计时，
+                    # 既能容忍慢速流，又能在对端长时间停顿时及时断开（同 call_llm_stream）
+                    timeout=aiohttp.ClientTimeout(total=None, sock_connect=timeout, sock_read=timeout),
                 ) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
@@ -230,24 +232,95 @@ async def call_llm(
                                          messages=messages, success=False,
                                          error=f"HTTP {resp.status}")
 
-                    data = await resp.json()
-                    choices = data.get("choices", [])
-                    if not choices:
-                        logger.warning(f"LLM API 返回空 choices (tier={tier})")
+                    # 状态：流式聚合 content / reasoning_content / tool_calls 增量，
+                    # 语义与原先一次性 JSON 响应完全等价，底层全程走 SSE 流，
+                    # 因此不会再被单次 total 超时掐断
+                    text_parts: list[str] = []
+                    reasoning_parts: list[str] = []
+                    tool_call_acc: dict[int, dict] = {}
+                    received = False  # 状态：是否已开始产出；仅用于 debug 提示
+                    async for raw_line in resp.content:
+                        line = raw_line.decode("utf-8", errors="replace").strip()
+                        if not line or line.startswith(":"):
+                            continue
+                        if line == "data: [DONE]":
+                            break
+                        if not line.startswith("data: "):
+                            continue
+                        try:
+                            chunk = json.loads(line[6:])
+                        except json.JSONDecodeError:
+                            continue
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            continue  # 状态：非标准 SSE 块（如 usage 事件）带空 choices，无内容跳过
+                        delta = choices[0].get("delta", {}) or {}
+                        content = delta.get("content") or ""
+                        reasoning = delta.get("reasoning_content") or ""
+                        if not received and (content or reasoning):
+                            received = True
+                            logger.debug(
+                                "LLM 流式开始接收 (tier=%s, model=%s)",
+                                tier, model_config["model_name"],
+                            )
+                        if content:
+                            text_parts.append(content)
+                        if reasoning:
+                            reasoning_parts.append(reasoning)
+                        # 状态：Function Calling 的 tool_calls 按 index 增量拼接
+                        for tc in delta.get("tool_calls") or []:
+                            idx = tc.get("index", 0)
+                            acc = tool_call_acc.setdefault(
+                                idx, {"id": "", "name": "", "arguments": ""}
+                            )
+                            if tc.get("id"):
+                                acc["id"] = tc["id"]
+                            fn = tc.get("function") or {}
+                            if fn.get("name"):
+                                acc["name"] = fn["name"]
+                            acc["arguments"] += fn.get("arguments") or ""
+
+                    if not received and not tool_call_acc:
+                        logger.warning(f"LLM API 返回空流 (tier={tier})")
                         return LLMResult(text=None, tier=tier,
                                          model_name=model_config["model_name"],
                                          messages=messages, success=False,
                                          error="空 choices")
 
-                    message = choices[0].get("message", {})
-                    content = message.get("content", "")
-                    tool_calls = _parse_tool_calls(message.get("tool_calls"))
+                    tool_calls = None
+                    if tool_call_acc:
+                        raw = [
+                            {"id": acc["id"],
+                             "function": {"name": acc["name"], "arguments": acc["arguments"]}}
+                            for acc in tool_call_acc.values()
+                        ]
+                        tool_calls = _parse_tool_calls(raw)
+
                     # 状态：推理模式（DeepSeek 官方等）响应携带 reasoning_content 思考字段，
                     # 必须随 LLMResult 透传，供 Function Calling 回填时原样带回复用；
                     # 否则多轮回传缺失该字段，DeepSeek 官方 API 直接拒绝请求
-                    reasoning = message.get("reasoning_content") or None
+                    reasoning = "".join(reasoning_parts) or None
 
-                    return LLMResult(text=content, tier=tier,
+                    # 状态：推理模型常见坑——思考极长把 max_tokens 耗尽，只有 reasoning
+                    # 无正文也无工具调用。此时必须给明确错误（而非 error=None → 上层"未知错误"）
+                    if not text_parts and not tool_call_acc and reasoning:
+                        logger.warning(
+                            f"LLM 仅输出推理未产出正文/工具调用 (tier={tier}, "
+                            f"reasoning_chars={len(reasoning)}, 疑似 max_tokens 截断)"
+                        )
+                        return LLMResult(
+                            text=None, tier=tier,
+                            model_name=model_config["model_name"],
+                            messages=messages, success=False,
+                            error=(
+                                "模型仅输出推理内容，未产出正文或工具调用"
+                                f"（reasoning {len(reasoning)} 字符，疑似 max_tokens 截断）"
+                            ),
+                            reasoning_content=reasoning,
+                        )
+
+                    # 状态：无正文（纯 tool_calls 中间态）时 text 置 None，与一次性 JSON 语义一致
+                    return LLMResult(text="".join(text_parts) or None, tier=tier,
                                      model_name=model_config["model_name"],
                                      messages=messages, success=True,
                                      tool_calls=tool_calls,
@@ -354,6 +427,7 @@ async def call_llm_stream(
                         return
 
                     started = True  # 状态：流已建立，此后异常直接终止，杜绝重播重复
+                    received = False  # 状态：仅用于 debug 提示"开始接收"
                     async for raw_line in resp.content:  # 状态：流式读取，遇 [DONE] 结束
                         line = raw_line.decode("utf-8", errors="replace").strip()
                         if not line or line.startswith(":"):
@@ -363,9 +437,18 @@ async def call_llm_stream(
                         if line.startswith("data: "):
                             try:
                                 chunk = json.loads(line[6:])
-                                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                choices = chunk.get("choices") or []
+                                if not choices:
+                                    continue  # 状态：非标准 SSE 块带空 choices，无内容跳过
+                                delta = choices[0].get("delta", {}) or {}
                                 content = delta.get("content", "")
                                 if content:
+                                    if not received:
+                                        received = True
+                                        logger.debug(
+                                            "LLM 流式开始接收 (tier=%s, model=%s)",
+                                            tier, model_config["model_name"],
+                                        )
                                     yield content
                             except json.JSONDecodeError:
                                 continue

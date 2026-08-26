@@ -97,40 +97,51 @@ async def mock_llm_server(monkeypatch):
 
     async def handler(req):
         body = await req.json()
-        # 状态：请求带 tools 时返回 tool_calls（Function Calling 模拟）
+        resp = web.StreamResponse()
+        resp.headers["Content-Type"] = "text/event-stream"
+        await resp.prepare(req)
+        # 状态：先发一个带空 choices 的非标准块（模拟 usage/空事件），
+        # 回归验证解析对空 choices 数组不抛 IndexError
+        await resp.write(
+            ("data: " + json.dumps({"choices": []}) + "\n\n").encode()
+        )
+        # 状态：请求带 tools 时流式下发 tool_calls（Function Calling 模拟，按 index 增量拼接）
         if body.get("tools"):
-            return web.json_response(
-                {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": None,
-                                "tool_calls": [
-                                    {
-                                        "id": "call_1",
-                                        "type": "function",
-                                        "function": {
-                                            "name": "manage_tags",
-                                            "arguments": '{"entity_id": "pc_01", "add_tags": ["流血"]}',
-                                        },
-                                    }
-                                ],
-                            }
+            await resp.write(
+                ("data: " + json.dumps({
+                    "choices": [{
+                        "delta": {
+                            "role": "assistant",
+                            "tool_calls": [
+                                {"index": 0, "id": "call_1", "type": "function",
+                                 "function": {"name": "manage_tags", "arguments": ""}},
+                            ],
                         }
-                    ]
-                }
+                    }]
+                }) + "\n\n").encode()
             )
-        if body["stream"]:
-            resp = web.StreamResponse()
-            resp.headers["Content-Type"] = "text/event-stream"
-            await resp.prepare(req)
-            for piece in ["A", "B"]:
+            await resp.write(
+                ("data: " + json.dumps({
+                    "choices": [{
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0,
+                                 "function": {"arguments": '{"entity_id": "pc_01", "add_tags": ["流血"]}'}},
+                            ],
+                        }
+                    }]
+                }) + "\n\n").encode()
+            )
+        else:
+            # 状态：流式逐段下发 content，聚合后 == "OK-PAYLOAD"
+            for piece in ["OK-", "PAYLOAD"]:
                 await resp.write(
-                    f"data: {json.dumps({'choices': [{'delta': {'content': piece}}]})}\n\n".encode()
+                    ("data: " + json.dumps(
+                        {"choices": [{"delta": {"content": piece}}]}
+                    ) + "\n\n").encode()
                 )
-            await resp.write(b"data: [DONE]\n\n")
-            return resp
-        return web.json_response({"choices": [{"message": {"content": "OK-PAYLOAD"}}]})
+        await resp.write(b"data: [DONE]\n\n")
+        return resp
 
     app = web.Application()
     app.router.add_post("/v1/chat/completions", handler)
@@ -166,7 +177,7 @@ async def test_call_llm_success_via_mock(mock_llm_server):
 @pytest.mark.real_llm
 async def test_call_llm_stream_via_mock(mock_llm_server):
     chunks = [c async for c in call_llm_stream("standard", [{"role": "user", "content": "hi"}])]
-    assert chunks == ["A", "B"]
+    assert chunks == ["OK-", "PAYLOAD"]
 
 
 @pytest.fixture
