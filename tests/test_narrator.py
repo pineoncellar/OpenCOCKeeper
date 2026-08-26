@@ -182,6 +182,33 @@ async def test_run_narrated_turn_pipeline(storage, world_id, fake_llm):
     assert storage.get_turn(world_id, 1) is None
 
 
+async def test_run_narrated_turn_player_input_traced_to_real_turn(
+    storage, world_id, fake_llm,
+):
+    """player_input 输入锚点落在真实轮次文件，而非塌缩到 turn 0（防回归）。
+
+    历史 bug：run_narrated_turn 用 turn_num or 0 发输入事件，adapter 未传轮号时
+    全部玩家输入堆进 turn-000000；修复后统一先取 next_turn_num 再发，轮号与
+    Director 落库一致。
+    """
+    from src.webui.trace_store import get_trace_store
+
+    _seed_pc(storage, world_id)
+    fake_llm.set_response("smart", _step_stats_then_directive())
+    fake_llm.set_response("standard", "[阿卡姆旅馆 - 一楼大厅 - 深夜] 你推门而入……")
+    director = Director(storage, llm=fake_llm.call, tier="smart")
+    narrator = Narrator(llm=fake_llm.call)
+    await run_narrated_turn(
+        storage, world_id, "调查员推门进入旅馆大厅",
+        director=director, narrator=narrator,
+    )
+    # 状态：turn 1 文件含本轮输入锚点且轮号正确；turn 0 不含玩家输入
+    events1 = get_trace_store().load_turn(world_id, 1)
+    assert any(e.event_type == "player_input" and e.turn_num == 1 for e in events1)
+    events0 = get_trace_store().load_turn(world_id, 0)
+    assert not any(e.event_type == "player_input" for e in events0)
+
+
 async def test_run_narrated_turn_narrator_failure_keeps_state(storage, world_id, fake_llm):
     """Narrator 失败：抛 NarratorError，但物理状态与手记已落库，可降级对外输出。"""
     _seed_pc(storage, world_id)

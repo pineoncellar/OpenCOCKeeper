@@ -245,12 +245,15 @@ async def run_narrated_turn(
         )
     if narrator is None:
         narrator = Narrator(llm=llm)
-    # 状态：发布玩家输入事件到 TraceBus（每轮 trace 的输入锚点），轮号由 Director 落库后回填
+    # 状态：统一解析真实轮号（缺省取 next_turn_num，纯计算幂等无副作用），
+    # 输入锚点与 Director 落库共用同一轮号，杜绝 player_input 事件塌缩到 turn 0
+    turn = turn_num if turn_num is not None else storage.next_turn_num(world_id)
+    # 状态：发布玩家输入事件到 TraceBus（每轮 trace 的输入锚点）
     await get_trace_bus().publish(make_player_input_event(
-        action, world_id=world_id, turn_num=turn_num or 0,
+        action, world_id=world_id, turn_num=turn,
     ))
     directive = await director.run_turn(
-        world_id, action, turn_num=turn_num
+        world_id, action, turn_num=turn
     )
     # 终局分支：Director 交卷带 is_ending=True，直接进入收尾管线，不再走常规演播/钩子
     if directive.is_ending:
