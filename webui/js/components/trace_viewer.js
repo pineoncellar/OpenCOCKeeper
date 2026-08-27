@@ -89,6 +89,36 @@ class TraceViewer {
         if (this.loadMoreBtn) {
             this.loadMoreBtn.addEventListener('click', () => this.loadTurns(this.turnOrder.length));
         }
+        // 状态：移动端覆盖式侧栏（世界/轮次抽屉）交互，桌面端自动跳过
+        this._initMobileSidebar();
+    }
+
+    // ====================================================================
+    // 移动端：覆盖式侧栏（世界/轮次抽屉）
+    // ====================================================================
+
+    _initMobileSidebar() {
+        const layout = document.getElementById('trace-layout');
+        const mask = document.getElementById('trace-sidebar-mask');
+        if (!layout || !mask) return;   // 元素缺失（桌面端）时跳过
+
+        // 状态：世界/轮次两个抽屉互斥——打开一个先关闭另一个
+        this._worldDrawer = initMobileDrawer({
+            layout, mask,
+            button: document.getElementById('trace-fab-worlds'),
+            drawer: this.worldsListEl,
+            openClass: 'sidebar-worlds',
+            onOpen: () => this._timelineDrawer && this._timelineDrawer.close(),
+            onSelect: (e) => !!e.target.closest('.world-item'),
+        });
+        this._timelineDrawer = initMobileDrawer({
+            layout, mask,
+            button: document.getElementById('trace-fab-timeline'),
+            drawer: this.timelineEl,
+            openClass: 'sidebar-timeline',
+            onOpen: () => this._worldDrawer && this._worldDrawer.close(),
+            onSelect: (e) => !!e.target.closest('.timeline-item'),
+        });
     }
 
     async loadWorlds() {

@@ -17,16 +17,36 @@ class StateInspector {
     init() {
         this.container.innerHTML = `
             <div class="inspector-status" id="inspector-status"></div>
-            <div class="inspector-layout">
+            <div class="inspector-layout" id="inspector-layout">
                 <aside class="inspector-worlds" id="inspector-worlds"></aside>
                 <div class="inspector-detail" id="inspector-detail">
                     <p class="placeholder">选择一个世界查看详情</p>
                 </div>
-            </div>`;
+            </div>
+            <div class="trace-sidebar-mask" id="inspector-sidebar-mask"></div>
+            <button class="trace-fab" id="inspector-fab-worlds" title="世界列表" aria-label="世界列表">🗺️</button>`;
         this.worldsEl = this.container.querySelector('#inspector-worlds');
         this.detailEl = this.container.querySelector('#inspector-detail');
         this.statusEl = this.container.querySelector('#inspector-status');
+        this._initMobileSidebar();
         this._loadWorlds();
+    }
+
+    // ====================================================================
+    // 移动端：世界列表覆盖式抽屉（左侧滑入）
+    // ====================================================================
+
+    _initMobileSidebar() {
+        const layout = this.container.querySelector('#inspector-layout');
+        const mask = this.container.querySelector('#inspector-sidebar-mask');
+        const fab = this.container.querySelector('#inspector-fab-worlds');
+        if (!layout || !mask || !fab) return;
+        // 状态：选中世界后自动收起世界列表抽屉
+        this._worldsDrawer = initMobileDrawer({
+            layout, mask, button: fab, drawer: this.worldsEl,
+            openClass: 'sidebar-worlds',
+            onSelect: (e) => !!e.target.closest('.inspector-world-item'),
+        });
     }
 
     // ====================================================================

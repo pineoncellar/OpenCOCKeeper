@@ -25,7 +25,7 @@ class GameClient {
                     <input type="checkbox" id="game-notify"> 后台提醒
                 </label>
             </div>
-            <div class="game-layout">
+            <div class="game-layout" id="game-layout">
                 <div class="game-main">
                     <div class="game-banner" id="game-banner">
                         <span class="game-banner-placeholder">尚未开始跑团</span>
@@ -54,7 +54,9 @@ class GameClient {
                 <aside class="game-panel" id="game-panel">
                     <p class="placeholder">载入世界后显示角色面板</p>
                 </aside>
-            </div>`;
+            </div>
+            <div class="trace-sidebar-mask" id="game-sidebar-mask"></div>
+            <button class="trace-fab" id="game-fab-panel" title="角色面板" aria-label="角色面板">👤</button>`;
 
         this.statusEl = this.container.querySelector('#game-status');
         this.logEl = this.container.querySelector('#game-log');
@@ -99,6 +101,22 @@ class GameClient {
         });
 
         this._connect();
+        this._initMobileSidebar();
+    }
+
+    // ====================================================================
+    // 移动端：角色面板覆盖式抽屉（右侧滑入）
+    // ====================================================================
+
+    _initMobileSidebar() {
+        const layout = this.container.querySelector('#game-layout');
+        const mask = this.container.querySelector('#game-sidebar-mask');
+        const fab = this.container.querySelector('#game-fab-panel');
+        if (!layout || !mask || !fab) return;
+        this._panelDrawer = initMobileDrawer({
+            layout, mask, button: fab, drawer: this.panelEl,
+            openClass: 'sidebar-panel',
+        });
     }
 
     // ====================================================================

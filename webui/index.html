@@ -29,7 +29,7 @@
     <main class="main" id="main-content">
         <!-- Trace 面板 -->
         <section class="tab-panel active" id="panel-trace">
-            <div class="trace-layout">
+            <div class="trace-layout" id="trace-layout">
                 <!-- 左侧：世界选择 -->
                 <aside class="trace-worlds" id="trace-worlds">
                     <h3 class="panel-title">Worlds</h3>
@@ -64,6 +64,10 @@
                     </div>
                 </div>
             </div>
+            <!-- 移动端：覆盖式侧栏遮罩与浮动按钮（桌面端隐藏，仅手机显示） -->
+            <div class="trace-sidebar-mask" id="trace-sidebar-mask"></div>
+            <button class="trace-fab" id="trace-fab-worlds" title="世界列表" aria-label="世界列表">🌍</button>
+            <button class="trace-fab" id="trace-fab-timeline" title="轮次列表" aria-label="轮次列表">📜</button>
         </section>
 
         <!-- Worlds 面板：数据底座剖析器 -->
@@ -99,6 +103,7 @@
     <script src="/js/utils/sse.js"></script>
     <script src="/js/utils/ws.js"></script>
     <script src="/js/utils/notifier.js"></script>
+    <script src="/js/utils/drawer.js"></script>
     <script src="/js/components/trace_viewer.js"></script>
     <script src="/js/components/state_inspector.js"></script>
     <script src="/js/components/config_editor.js"></script>

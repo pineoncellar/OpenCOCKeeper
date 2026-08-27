@@ -1599,3 +1599,280 @@ html, body {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
 }
+
+/* ====================================================================
+   移动端适配 — 响应式布局（桌面端不受影响）
+   ==================================================================== */
+
+/* 移动端专用元素：桌面端隐藏 */
+.trace-fab,
+.trace-sidebar-mask {
+    display: none;
+}
+
+/* ---- 平板及以下（≤ 900px）---- */
+@media (max-width: 900px) {
+    .topbar-subtitle {
+        display: none;
+    }
+
+    .main {
+        padding: 10px 12px;
+    }
+
+    /* 双 Agent 对比在平板适当压缩 */
+    .dual-container {
+        gap: 0;
+    }
+}
+
+/* ---- 手机（≤ 640px）---- */
+@media (max-width: 640px) {
+    /* --- 顶栏：压缩横向内容，Tab 横向滚动 --- */
+    .topbar {
+        padding: 0 8px;
+        height: 44px;
+    }
+    .topbar-inner {
+        gap: 6px;
+    }
+    .topbar-title {
+        font-size: 13px;
+    }
+    .world-filter {
+        display: none;               /* 手机上无多余空间，世界筛选走 Trace/Game 内部 */
+    }
+    .conn-status {
+        font-size: 10px;
+    }
+    .topbar-nav {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 2px;
+    }
+    .topbar-nav::-webkit-scrollbar {
+        display: none;
+    }
+    .tab-btn {
+        padding: 6px 9px;
+        white-space: nowrap;
+    }
+
+    /* --- 主内容区：动态视口高度（适配手机软键盘弹出） --- */
+    .main {
+        padding: 8px;
+        height: calc(100vh - 44px - 30px);
+        height: calc(100dvh - 44px - 30px);
+    }
+
+    /* --- 底部状态栏：压缩 --- */
+    .statusbar {
+        height: 30px;
+        padding: 0 8px;
+        gap: 8px;
+        font-size: 10px;
+    }
+    .statusbar-right {
+        display: none;               /* 手机隐藏实时时钟，省横向空间 */
+    }
+
+    /* ============ Game：聊天区全宽，角色面板改右侧抽屉 ============ */
+    .game-toolbar {
+        flex-wrap: wrap;
+    }
+    .game-main {
+        width: 100%;
+    }
+    .game-panel {
+        position: fixed;
+        top: 44px;
+        bottom: 30px;
+        right: 0;
+        width: 78vw;
+        max-width: 300px;
+        z-index: 90;
+        transform: translateX(100%);
+        transition: transform 0.22s ease;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.45);
+        border-top: none;
+        border-left: 1px solid var(--border);
+        border-radius: 8px 0 0 8px;
+    }
+    .game-layout.sidebar-panel .game-panel {
+        transform: translateX(0);
+    }
+    /* 快捷命令 chips 改横向滚动，避免多行占用聊天区高度 */
+    .game-quick {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+    }
+    .game-quick::-webkit-scrollbar {
+        display: none;
+    }
+    .game-chip {
+        white-space: nowrap;
+    }
+    /* iOS 输入聚焦自动缩放规避：字号提到 ≥16px */
+    .game-input-row input,
+    .game-input-row textarea {
+        font-size: 16px;
+    }
+    .game-input-row textarea {
+        height: 42px;
+    }
+    .game-btn {
+        padding: 8px 14px;
+    }
+
+    /* ============ Trace：三栏 → 覆盖式抽屉 ============ */
+    .trace-worlds,
+    .trace-timeline {
+        position: fixed;
+        top: 44px;
+        bottom: 30px;
+        left: 0;
+        width: 78vw;
+        max-width: 300px;
+        z-index: 90;
+        transform: translateX(-100%);
+        transition: transform 0.22s ease;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.45);
+        border-radius: 0 8px 8px 0;
+    }
+    .trace-layout.sidebar-worlds .trace-worlds,
+    .trace-layout.sidebar-timeline .trace-timeline {
+        transform: translateX(0);
+    }
+
+    /* 遮罩：有抽屉打开时显示 */
+    .trace-sidebar-mask {
+        display: none;
+        position: fixed;
+        top: 44px;
+        left: 0;
+        right: 0;
+        bottom: 30px;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 80;
+    }
+    .trace-sidebar-mask.show {
+        display: block;
+    }
+
+    /* 浮动按钮 */
+    .trace-fab {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        position: fixed;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--accent-blue);
+        color: var(--bg-primary);
+        border: none;
+        font-size: 18px;
+        z-index: 85;
+        box-shadow: var(--shadow);
+        cursor: pointer;
+    }
+    .trace-fab:active {
+        filter: brightness(1.15);
+    }
+    #trace-fab-worlds {
+        left: 10px;
+        bottom: 46px;
+    }
+    #trace-fab-timeline {
+        left: 58px;
+        bottom: 46px;
+    }
+    /* Worlds 面板：世界列表按钮 */
+    #inspector-fab-worlds {
+        left: 10px;
+        bottom: 46px;
+    }
+    /* Game 面板：角色面板按钮（右上角，不挡聊天输入） */
+    #game-fab-panel {
+        right: 10px;
+        top: 52px;
+    }
+    /* 对应抽屉打开时隐藏该按钮，避免与抽屉重叠 */
+    .trace-layout.sidebar-worlds ~ #trace-fab-worlds,
+    .trace-layout.sidebar-timeline ~ #trace-fab-timeline,
+    .inspector-layout.sidebar-worlds ~ #inspector-fab-worlds,
+    .game-layout.sidebar-panel ~ #game-fab-panel {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    /* 双 Agent 对比：纵向堆叠 */
+    .trace-dual {
+        max-height: none;
+    }
+    .dual-container {
+        flex-direction: column;
+    }
+    .dual-pane {
+        min-height: 100px;
+    }
+    .dual-content {
+        max-height: 160px;
+    }
+
+    /* ============ Worlds：世界列表改左侧抽屉 ============ */
+    .inspector-worlds {
+        position: fixed;
+        top: 44px;
+        bottom: 30px;
+        left: 0;
+        width: 78vw;
+        max-width: 300px;
+        z-index: 90;
+        transform: translateX(-100%);
+        transition: transform 0.22s ease;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.45);
+        border-radius: 0 8px 8px 0;
+    }
+    .inspector-layout.sidebar-worlds .inspector-worlds {
+        transform: translateX(0);
+    }
+    .inspector-entity-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* ============ Config 面板：副导航横向滚动 ============ */
+    .config-subnav {
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    .config-subnav::-webkit-scrollbar {
+        display: none;
+    }
+    .config-subnav .tab-btn {
+        white-space: nowrap;
+    }
+}
+
+/* ---- 小屏手机（≤ 420px）---- */
+@media (max-width: 420px) {
+    .topbar-title {
+        font-size: 12px;
+    }
+    .game-panel {
+        flex-basis: 36%;
+        max-height: 36%;
+    }
+    .trace-fab {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+    }
+    #trace-fab-timeline {
+        left: 52px;
+    }
+}
