@@ -88,6 +88,10 @@ def _format_checks(checks: List[dict]) -> str:
         if dice:
             kind = "奖励" if dice > 0 else "惩罚"
             parts.append(f"（{kind}{abs(dice)}骰）")
+        # 状态：疯狂总结发作——权威区补持续时长，Narrator 依此报幕时间跳跃
+        hours = c.get("duration_hours")
+        if hours:
+            parts.append(f"（持续 {hours} 小时）")
         lines.append("- " + " ".join(parts))
     return "\n".join(lines)
 

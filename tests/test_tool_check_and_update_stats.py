@@ -179,12 +179,17 @@ def test_combined_sections(storage, entity):
 
 
 def test_rule_hints_sanity_threshold(storage, entity):
-    # san 58，-12 → 12 >= 58/5=11.6 → 临时疯狂阈值命中
+    # san 58，-12 → 12 >= 5 触发疯狂判定；实体无 INT → 心智保护未发狂
     out = _call(storage, entity, san_change=-12)
     hints = out["rule_hints"]
-    assert hints["temporary_insanity_hit"] is True
+    # 状态：临时疯狂阈值已由 insanity 结构体唯一承载，rule_hints 不再重复
+    assert "temporary_insanity_hit" not in hints
     assert hints["indefinite_insanity_hit"] is False  # 12 < 70/5=14
     assert hints["san_loss_ratio"] == pytest.approx(round(12 / 58, 3))
+    # 疯狂判定：触发门槛已达，但实体无 INT → 心智保护
+    assert out["insanity"]["triggered"] is False
+    assert out["insanity"]["reason"] == "no_int_stat"
+    assert out["suggested_tags"] is None
 
 
 def test_rule_hints_major_wound(storage, entity):
@@ -198,6 +203,109 @@ def test_rule_hints_major_wound(storage, entity):
 def test_rule_hints_hp_zero(storage, entity):
     out = _call(storage, entity, hp_change=-10)
     assert out["rule_hints"]["hp_zero"] is True
+
+
+# ============================================
+# 疯狂自动级联（官方 5 点阈值）
+# ============================================
+
+def _int_entity(storage, entity):
+    """带 INT 属性的副本实体（原 fixture 无 INT，走心智保护兜底）。"""
+    return storage.create_entity(
+        entity["world_id"],
+        "player_02",
+        "PC",
+        "有智玩家",
+        hp=10,
+        hp_max=12,
+        mp=5,
+        mp_max=6,
+        san=58,
+        san_max=70,
+        attributes_and_skills={"侦查": 60, "INT": 70},
+        inventory=[],
+        tags=[],
+    )
+
+
+def test_san_loss_triggers_insanity_and_battered_hp(storage, entity):
+    # san -12 >= 5：INT 检定成功（30<=70）→ 抽表 3 遍体鳞伤 → hp 折半 10→5
+    e2 = _int_entity(storage, entity)
+    out = _call(storage, e2, san_change=-12, rng=SeqRng([3, 0, 3, 4]))
+    assert out["insanity"]["triggered"] is True
+    assert out["insanity"]["type"] == "TEMPORARY"
+    assert out["insanity"]["bout_result"]["name"] == "遍体鳞伤"
+    assert out["insanity"]["bout_result"]["duration_hours"] == 4
+    assert out["stats_changed"]["san"]["delta"] == -12
+    assert out["stats_changed"]["hp"] == {"old": 10, "new": 5, "delta": -5, "requested": -5}
+    assert out["suggested_tags"] == ["临时性疯狂", "状态:遍体鳞伤"]
+    # 权威区：智力检定 + 总结发作抽签
+    assert len(out["extra_checks"]) == 2
+    assert out["extra_checks"][0]["skill_or_attribute"] == "智力"
+    assert out["extra_checks"][1]["kind"] == "bout"
+
+
+def test_san_loss_int_failure_protection(storage, entity):
+    # INT 检定失败（78 > 70）→ 心智封闭未发狂，HP 不折半
+    e2 = _int_entity(storage, entity)
+    out = _call(storage, e2, san_change=-12, rng=SeqRng([7, 8]))
+    assert out["insanity"]["triggered"] is False
+    assert out["insanity"]["reason"] == "int_protection"
+    assert out["suggested_tags"] is None
+    assert "hp" not in out["stats_changed"]
+
+
+def test_san_loss_below_threshold_no_insanity(storage, entity):
+    # san -3 < 5 不触发疯狂，不产出额外检定
+    out = _call(storage, entity, san_change=-3)
+    assert out["insanity"] is None
+    assert out["suggested_tags"] is None
+    assert out["extra_checks"] is None
+
+
+def test_san_loss_phobia_cascade_suggested_tag(storage, entity):
+    # INT 成功（30<=70）→ 抽表 9 恐惧症 → 级联 1D100=48 抽中某恐惧症
+    from src.rules.insanity_tables import PHOBIAS
+
+    e2 = _int_entity(storage, entity)
+    out = _call(storage, e2, san_change=-12, rng=SeqRng([3, 0, 9, 48, 2]))
+    bout = out["insanity"]["bout_result"]
+    assert bout["name"] == "恐惧症"
+    assert bout["extra_name"] == PHOBIAS[48]
+    assert out["suggested_tags"] == ["临时性疯狂", f"恐惧症:{PHOBIAS[48]}"]
+    # 权威区：智力 + 总结发作 + 级联抽取
+    assert len(out["extra_checks"]) == 3
+    assert out["extra_checks"][2]["kind"] == "extra"
+
+
+def test_san_loss_mania_cascade_suggested_tag(storage, entity):
+    from src.rules.insanity_tables import MANIAS
+
+    e2 = _int_entity(storage, entity)
+    out = _call(storage, e2, san_change=-12, rng=SeqRng([3, 0, 10, 36, 3]))
+    assert out["insanity"]["bout_result"]["extra_name"] == MANIAS[36]
+    assert out["suggested_tags"] == ["临时性疯狂", f"躁狂症:{MANIAS[36]}"]
+
+
+def test_sc_expression_loss_triggers_insanity(storage, entity):
+    # SC 失败档 1d10 掷 9：理智检定失败（60>58）→ 损失 9 ≥ 5 → 触发疯狂
+    e2 = _int_entity(storage, entity)
+    out = _call(
+        storage, e2, san_sc_expression="0/1d10", rng=SeqRng([6, 0, 9, 3, 0, 1, 4])
+    )
+    assert out["stats_changed"]["san"]["delta"] == -9
+    assert out["insanity"]["triggered"] is True
+    assert out["insanity"]["bout_result"]["name"] == "失忆"
+
+
+def test_insanity_keeps_diff_rollback_consistent(storage, entity):
+    # 疯狂折半 HP 与 diff 一致（回档取反可精确还原）
+    e2 = _int_entity(storage, entity)
+    out = _call(storage, e2, san_change=-12, rng=SeqRng([3, 0, 3, 4]))
+    assert out["state_diff"]["numeric_changes"] == {
+        "player_02.san": -12,
+        "player_02.hp": -5,
+    }
 
 
 # ============================================

@@ -17,6 +17,7 @@ from .checks import (
     stat_check,
 )
 from .dice import D100Roll, roll_d100, roll_expression, roll_ndn, roll_with_bonus_penalty
+from .insanity import InsanityResult, TEMPORARY_INSANITY_LOSS, resolve_temporary_insanity
 from .stats import CheckTarget, clamp_stat, normalize_target_name, resolve_check_target
 
 __all__ = [
@@ -36,6 +37,10 @@ __all__ = [
     "roll_expression",
     "roll_ndn",
     "roll_with_bonus_penalty",
+    # insanity
+    "InsanityResult",
+    "TEMPORARY_INSANITY_LOSS",
+    "resolve_temporary_insanity",
     # stats
     "CheckTarget",
     "clamp_stat",

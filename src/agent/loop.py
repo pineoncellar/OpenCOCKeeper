@@ -255,12 +255,17 @@ def build_default_runner(
         if check is not None:
             # 状态：检定结果补上实体标识，Narrator 可区分"谁的检定"
             check = {**check, "entity_id": kwargs.get("entity_id")}
+        # 状态：疯狂链路追加检定（智力/总结发作/级联抽取）并入权威区，供 Narrator 演播
+        for extra in result.get("extra_checks") or []:
+            runner.collected_checks.append({**extra, "entity_id": kwargs.get("entity_id")})
         return {
             "ok": result["ok"],
             "summary": result["summary_for_agent"],
             "check": check,
             "stats_changed": result["stats_changed"],
             "inventory_changed": result["inventory_changed"],
+            "insanity": result["insanity"],
+            "suggested_tags": result["suggested_tags"],
             "rule_hints": result["rule_hints"],
             "state_diff": result["state_diff"],
         }

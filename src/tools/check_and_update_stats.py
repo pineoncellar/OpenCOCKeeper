@@ -19,9 +19,11 @@ from ..core.exceptions import (
 from ..rules import (
     Difficulty,
     SUCCESS_LEVEL_LABEL,
+    TEMPORARY_INSANITY_LOSS,
     clamp_stat,
     parse_difficulty,
     resolve_check_target,
+    resolve_temporary_insanity,
     roll_expression,
     skill_check,
     stat_check,
@@ -65,12 +67,22 @@ def check_and_update_stats(
     if params.san_sc_expression:
         loss = _resolve_sc_loss(params, entity, rng)
         _apply_numeric(params, entity, diff, stats_changed, "san", -loss)
-    if params.hp_change is not None:
-        _apply_numeric(params, entity, diff, stats_changed, "hp", params.hp_change)
-    if params.mp_change is not None:
-        _apply_numeric(params, entity, diff, stats_changed, "mp", params.mp_change)
     if params.san_change is not None:
         _apply_numeric(params, entity, diff, stats_changed, "san", params.san_change)
+
+    # 疯狂判定：SAN 结算后单次损失 >= 5 自动级联（官方阈值，唯一承载）
+    insanity_block, suggested_tags, extra_checks, insanity_hp = _resolve_insanity_turn(
+        entity, stats_changed, rng, summary
+    )
+
+    # HP 变更：发狂折半与 hp_change 合并为单次变更，保证 stats_changed/diff 一致
+    hp_request = insanity_hp
+    if params.hp_change is not None:
+        hp_request += params.hp_change
+    if hp_request:
+        _apply_numeric(params, entity, diff, stats_changed, "hp", hp_request)
+    if params.mp_change is not None:
+        _apply_numeric(params, entity, diff, stats_changed, "mp", params.mp_change)
 
     for field in _NUMERIC_FIELDS:
         if field in stats_changed:
@@ -96,6 +108,9 @@ def check_and_update_stats(
             if (inventory_changed["added"] or inventory_changed["removed"])
             else None
         ),
+        "insanity": insanity_block,
+        "suggested_tags": suggested_tags,
+        "extra_checks": extra_checks or None,
         "rule_hints": rule_hints or None,
         "state_diff": diff,
         "summary_for_agent": _compose_summary(params, summary),
@@ -227,7 +242,8 @@ def _apply_inventory(
 def _build_rule_hints(entity: dict, stats_changed: Dict[str, dict]) -> dict:
     """机械阈值事实（决策 D5）：仅触达阈值时出现，绝不自动打 Tag。
 
-    状态：纯规则计算——SAN 1/5 疯狂阈值、HP 单次伤害一半的重伤阈值、HP 归零。
+    状态：纯规则计算——SAN 损失占比、不定疯狂占位阈值、HP 单次伤害一半的重伤阈值、HP 归零。
+    注意：临时疯狂已由 insanity 结构体唯一承载（官方 5 点阈值），此处不再重复提示。
     """
     hints: Dict[str, Any] = {}
     san = stats_changed.get("san")
@@ -236,9 +252,9 @@ def _build_rule_hints(entity: dict, stats_changed: Dict[str, dict]) -> dict:
         old = san["old"]
         if old > 0:
             hints["san_loss_ratio"] = round(loss / old, 3)
-            hints["temporary_insanity_hit"] = loss >= old / 5
         san_max = int(entity.get("san_max") or 0)
         if san_max > 0:
+            # 状态：不定疯狂占位——官方为单次损失 >= 当前 SAN 的 1/5，现以 san_max 近似，待后续核对
             hints["indefinite_insanity_hit"] = loss >= san_max / 5
     hp = stats_changed.get("hp")
     if hp:
@@ -248,6 +264,69 @@ def _build_rule_hints(entity: dict, stats_changed: Dict[str, dict]) -> dict:
             hints["major_wound_hit"] = abs(hp["requested"]) >= hp_max / 2
         hints["hp_zero"] = hp["new"] == 0
     return hints
+
+
+# ============================================
+# 临时疯狂自动级联（决策 D5：只建议 Tag，不越权落库）
+# ============================================
+
+
+def _extract_int(entity: dict) -> Optional[int]:
+    """从属性表解析 INT：英文缩写优先，中文别名兜底；缺失返回 None（心智保护兜底，不抛异常）。"""
+    skills = entity.get("attributes_and_skills") or {}
+    value = skills.get("INT")
+    if value is None:
+        value = skills.get("智力")
+    return int(value) if value is not None else None
+
+
+def _resolve_insanity_turn(
+    entity: dict,
+    stats_changed: Dict[str, dict],
+    rng,
+    summary: List[str],
+):
+    """SAN 结算后自动级联临时疯狂判定（官方 5 点阈值）。
+
+    返回 (insanity_block, suggested_tags, extra_checks, insanity_hp)：
+      insanity_block  疯狂契约 JSON（未达阈值时 None）
+      suggested_tags  建议挂载的疯狂 Tag（D5——工具只建议，落库由 Director 经 manage_tags 决策）
+      extra_checks    智力检定/抽表权威副本，供 loop 汇入 collected_checks 透传 Narrator
+      insanity_hp     遍体鳞伤的 HP 折半增量（负值，段 B 与 hp_change 合并应用）
+    """
+    san = stats_changed.get("san")
+    if not san or san["delta"] >= 0:
+        return None, None, [], 0
+    loss = abs(san["delta"])
+    if loss < TEMPORARY_INSANITY_LOSS:
+        return None, None, [], 0
+
+    result = resolve_temporary_insanity(
+        loss,
+        _extract_int(entity),
+        int(entity["san"]),
+        int(entity["hp"]),
+        rng=rng,
+    )
+    block = result.to_dict()
+    extra_checks = list(result.checks)
+    if not result.triggered:
+        reason_note = {
+            "no_int_stat": "实体无智力属性，心智封闭保持清醒",
+            "int_protection": "智力检定失败，心智封闭保持清醒",
+        }.get(result.reason, "未触发临时疯狂")
+        summary.append(f"单次损失 {loss} 点理智，{reason_note}")
+        return block, None, extra_checks, 0
+
+    # 状态：触发——组装建议 Tag（D5：不落库，交 Director 决策后经 manage_tags 挂载）
+    tags = ["临时性疯狂"]
+    bout = result.bout_result or {}
+    if bout.get("extra_kind") and bout.get("extra_name"):
+        tags.append(f"{bout['extra_kind']}:{bout['extra_name']}")
+    if bout.get("hp_halved"):
+        tags.append("状态:遍体鳞伤")
+    summary.append(f"单次损失 {loss} 点理智，陷入临时性疯狂（{bout.get('name')}）")
+    return block, tags, extra_checks, -result.hp_loss
 
 
 def _compose_summary(params: StatsUpdateInput, parts: List[str]) -> str:
