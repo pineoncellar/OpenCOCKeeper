@@ -44,6 +44,7 @@ class ContextBundle:
     action: Optional[str] = None        # 本轮玩家行动（原样保留）
     pc_count: int = 0                   # 实际渲染的调查员数
     recent_count: int = 0               # 实际渲染的对话轮数
+    scene_notes: str = ""               # 场景手记渲染文本（宏观与微观之间的中间层，软状态）
 
     @property
     def messages(self) -> List[Dict[str, str]]:
@@ -147,8 +148,18 @@ def _render_flags(game_phase: str, flags: Dict[str, Any]) -> str:
     return "\n".join(lines) or "（暂无）"
 
 
+def _render_scene_notes(notes: str) -> str:
+    """场景手记渲染：当前场景进行时软状态（NPC 态度/对话推进/生效检定），空则占位。
+
+    位置在快照末尾、近程对话之前——介于宏观前情提要（已固化提炼）与微观对话原文
+    （未提炼）之间；程序零解析，纯整块透传，内容与覆写纪律由 LLM 依 prompts 自洽。
+    """
+    text = (notes or "").strip()
+    return text or "（暂无）"
+
+
 def _render_snapshot(world: Dict[str, Any], pcs: List[dict]) -> str:
-    """Base Snapshot 文本：前情提要 + 全局标志 + 调查员状态。"""
+    """Base Snapshot 文本：前情提要 + 全局标志 + 调查员状态 + 场景手记。"""
     recap = (world.get("global_recap") or "").strip() or "（暂无前情提要）"
     section = ["【前情提要】", recap, "", "【全局标志】"]
     section.append(
@@ -162,6 +173,7 @@ def _render_snapshot(world: Dict[str, Any], pcs: List[dict]) -> str:
         section += ["", "【调查员状态】", "（暂无绑定调查员）"]
     # 角色背景不随快照注入：静态人物底稿由主 Agent 经 get_pc_background 按需查询，
     # 避免每轮默认烧 token（背景故事可能为大段散文，且不随回合变化）
+    section += ["", "【场景手记】", _render_scene_notes(world.get("scene_notes") or "")]
     return "\n".join(section)
 
 
@@ -234,6 +246,7 @@ def assemble(
     pcs = _collect_pcs(storage, world_id, world.get("player_ids") or [])
     snapshot = _render_snapshot(world, pcs)
     recent, recent_count = _render_recent(turns)
+    scene_notes = _render_scene_notes(world.get("scene_notes") or "")
     prompt = _build_prompt(snapshot, recent, action)
     return ContextBundle(
         system=meta,
@@ -243,4 +256,5 @@ def assemble(
         action=action,
         pc_count=len(pcs),
         recent_count=recent_count,
+        scene_notes=scene_notes,
     )

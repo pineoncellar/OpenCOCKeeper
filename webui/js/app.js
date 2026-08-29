@@ -183,6 +183,19 @@ const App = {
         // 状态：记录世界并转发给 TraceViewer
         this._trackWorld(event.world_id || '');
         this.traceViewer.pushEvent(event);
+        // 状态：directive 事件（携场景手记）后轻量刷新世界列表，worlds 栏手记实时可见
+        if (event.event_type === 'directive') {
+            this._scheduleWorldsRefresh();
+        }
+    },
+
+    _scheduleWorldsRefresh() {
+        // 状态：防抖 200ms——directive 事件每轮至多一次，合并多事件期间的重复刷新
+        if (this._worldsRefreshTimer) clearTimeout(this._worldsRefreshTimer);
+        this._worldsRefreshTimer = setTimeout(() => {
+            this._worldsRefreshTimer = null;
+            this.traceViewer.loadWorlds();
+        }, 200);
     },
 
     _onConnStatus(status) {

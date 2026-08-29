@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Any, Awaitable, Callable, Optional
 
 from src.agent.directive import (
@@ -36,6 +37,27 @@ from src.webui.trace_engine import (
 )
 
 logger = get_logger(__name__)
+
+# 场景切换判定阈值：新旧手记整块文本重叠率低于该值视为场景大转移
+# （场景转换几乎整块重写，同场景演进是增量修改；阈值保守防误触发频繁 force 固化）
+SCENE_TRANSITION_RATIO = 0.3
+
+
+def _is_scene_transition(
+    old_notes: str, new_notes: str, *, threshold: float = SCENE_TRANSITION_RATIO
+) -> bool:
+    """场景大转移检测：仅比较新旧手记整块文本差异度，绝不解析内容子字段。
+
+    手记是当前场景的进行时状态（软信息，程序零解析红线），场景转换时几乎整块
+    重写、同场景演进则是增量修改——用字符重叠率（SequenceMatcher.ratio）做保守
+    代理信号；任一侧为空或完全相同不视为切换。
+    """
+    old = (old_notes or "").strip()
+    new = (new_notes or "").strip()
+    if not old or not new or old == new:
+        return False
+    return SequenceMatcher(None, old, new).ratio() < threshold
+
 
 def _manual_ending_handoff() -> str:
     """/world archive 主动结团的默认导演手记（BD 软结局：未走到模组终幕由 KP 收束）。
@@ -252,6 +274,8 @@ async def run_narrated_turn(
     await get_trace_bus().publish(make_player_input_event(
         action, world_id=world_id, turn_num=turn,
     ))
+    # 状态：捕获本轮执行前的旧场景手记，供常规分支做场景切换差异检测（force 固化强信号）
+    old_scene_notes = (storage.get_world(world_id) or {}).get("scene_notes") or ""
     directive = await director.run_turn(
         world_id, action, turn_num=turn
     )
@@ -308,4 +332,9 @@ async def run_narrated_turn(
                 f"turn={directive.turn_num}: {e}",
                 exc_info=True,
             )
+    # 状态：场景切换强信号——旧手记被整块重写（差异度超阈值）时触发 force 固化，
+    # 把旧场景未固化轮次提炼进 RAG，随后手记被新场景自然接管；仅整块文本比较，
+    # 不解析内容，worker 未配置或差异不足时静默跳过（见 docs/场景级工作上下文 §5）
+    if worker is not None and _is_scene_transition(old_scene_notes, directive.scene_notes):
+        worker.trigger_world(world_id, force=True)
     return NarratedTurn(directive=directive, narration=narration)

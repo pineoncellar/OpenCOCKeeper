@@ -23,6 +23,7 @@ from src.agent.directive import (
     PRESENT_DIRECTIVE_NAME,
     extract_ending,
     extract_narrative_directive,
+    extract_scene_notes,
 )
 from src.agent.schemas import build_main_agent_schemas
 from src.core.exceptions import AgentLoopError
@@ -116,6 +117,8 @@ class Director:
             raise AgentLoopError(
                 f"主 Agent 决策失败: {result.final.error or '未知错误'}"
             ) from None
+        # 状态：场景手记（KP 局部手记）缺省空串——文本降级路径无来源保持空，不覆写不清空
+        scene_notes = ""
         if result.stop_call:
             # 状态：经 present_directive 正常交卷，提取导演手记（缺失时降级用最终文本）
             narrative = extract_narrative_directive(
@@ -124,6 +127,8 @@ class Director:
             )
             # 状态：终局信号（is_ending / ending_type）为模型权威的叙事字段，提取并归一化
             is_ending, ending_type = extract_ending(result.stop_call["arguments"])
+            # 状态：场景手记（软状态）随交卷提取，非空才写回，缺失保留旧值防误清空
+            scene_notes = extract_scene_notes(result.stop_call["arguments"])
             converged = True
         elif result.final.text:
             # 状态：模型直接文本收敛（未调收尾工具），以最终文本为导演手记降级
@@ -148,15 +153,20 @@ class Director:
             diffs=runner.collected_diffs,
             context_data=context_data,
         )
+        # 状态：场景手记整块覆写回 world_state——软信息不入 state_diff、不参与回档，
+        # 场景转换后由 LLM 下一轮改写实现自然遗忘（详见 docs/场景级工作上下文（KP局部手记）.md）
+        if scene_notes:
+            self._storage.update_world(world_id, scene_notes=scene_notes)
         logger.info(
             "回合裁决完成 world=%s turn=%s converged=%s 工具调用=%d diffs=%d "
             "checks=%d is_ending=%s",
             world_id, turn, converged, len(result.tool_calls),
             len(runner.collected_diffs), len(runner.collected_checks), is_ending,
         )
-        # 状态：发布导演手记事件到 TraceBus，供 WebUI 双 Agent 对比区实时渲染
+        # 状态：发布导演手记事件到 TraceBus（含本轮场景手记，非空才入事件），
+        # 供 WebUI 双 Agent 对比区实时渲染与审计回查
         await get_trace_bus().publish(make_directive_event(
-            narrative, world_id=world_id, turn_num=turn,
+            narrative, scene_notes=scene_notes, world_id=world_id, turn_num=turn,
         ))
         return NarrativeDirective(
             state_changes=record["state_diff"],
@@ -164,6 +174,7 @@ class Director:
             turn_num=turn,
             converged=converged,
             checks=runner.collected_checks,
+            scene_notes=scene_notes,
             is_ending=is_ending,
             ending_type=ending_type,
         )

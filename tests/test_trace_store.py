@@ -91,6 +91,41 @@ async def test_world_summaries(store):
     assert summaries["w2"]["turn_count"] == 1
 
 
+def test_merge_scene_notes_enriches_worlds():
+    """世界摘要合并 scene_notes：有手记附上、无手记空串、storage 缺失保持原样。"""
+    from src.webui.routes import _merge_scene_notes
+
+    class _StubStorage:
+        def __init__(self, notes):
+            self._notes = notes
+
+        def get_world(self, world_id):
+            return {"world_id": world_id, "scene_notes": self._notes.get(world_id, "")}
+
+    worlds = [{"world_id": "w1", "turn_count": 3}, {"world_id": "w2", "turn_count": 1}]
+    _merge_scene_notes(_StubStorage({"w1": "酒馆：酒保防备，隐瞒密室"}), worlds)
+    assert worlds[0]["scene_notes"] == "酒馆：酒保防备，隐瞒密室"
+    assert worlds[1]["scene_notes"] == ""
+
+    plain = [{"world_id": "w1", "turn_count": 3}]
+    _merge_scene_notes(None, plain)
+    assert plain[0] == {"world_id": "w1", "turn_count": 3}
+    assert "scene_notes" not in plain[0]
+
+
+def test_merge_scene_notes_tolerates_world_missing():
+    """storage 单世界读取失败（世界不存在/抛错）不影响列表，附空串。"""
+    from src.webui.routes import _merge_scene_notes
+
+    class _RaisingStorage:
+        def get_world(self, world_id):
+            raise RuntimeError("boom")
+
+    worlds = [{"world_id": "w1", "turn_count": 3}]
+    _merge_scene_notes(_RaisingStorage(), worlds)
+    assert worlds[0]["scene_notes"] == ""
+
+
 # ====================================================================
 # 容错
 # ====================================================================

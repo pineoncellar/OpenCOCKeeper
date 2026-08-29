@@ -29,7 +29,7 @@ _NUMERIC_COLUMNS = frozenset({"hp", "hp_max", "mp", "mp_max", "san", "san_max"})
 _JSON_COLUMNS = frozenset({"attributes_and_skills", "inventory", "tags", "background"})
 _TEXT_COLUMNS = frozenset({"type", "name", "occupation"})
 _WORLD_JSON_FIELDS = frozenset({"player_ids", "global_flags"})
-_WORLD_TEXT_FIELDS = frozenset({"game_phase", "global_recap"})
+_WORLD_TEXT_FIELDS = frozenset({"game_phase", "global_recap", "scene_notes"})
 
 # 世界生命周期状态：ACTIVE 可游玩 / ARCHIVED 已结团归档（只读、Worker 跳过）
 WORLD_STATUS_ACTIVE = "ACTIVE"
@@ -116,6 +116,7 @@ class Storage:
         game_phase: str = "EXPLORATION",
         global_flags: Optional[Dict[str, Any]] = None,
         global_recap: str = "",
+        scene_notes: str = "",
         status: str = WORLD_STATUS_ACTIVE,
     ) -> dict:
         """确保世界存在（不存在则创建），返回当前世界状态。
@@ -124,7 +125,8 @@ class Storage:
         强制约束：创建世界必须绑定 data/modules 下已存在的模组文件，
         缺省/空串/文件不存在一律抛 ModuleFileMissingError 且世界不创建
         （文件校验在事务前）；已存在的世界保持 INSERT OR IGNORE 幂等语义，
-        换绑走 update_world。
+        换绑走 update_world。scene_notes 为场景级工作上下文（KP 局部手记），
+        纯文本软状态缺省空串。
         """
         from ..module.loader import resolve as resolve_module
         resolve_module(module_name)  # 强制必填：非空 + 白名单 + 文件存在  # 状态：绑定校验
@@ -133,14 +135,16 @@ class Storage:
         with self._db.transaction() as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO world_state "
-                "(world_id, player_ids, game_phase, global_flags, global_recap, module_name, status) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(world_id, player_ids, game_phase, global_flags, global_recap, "
+                "scene_notes, module_name, status) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     world_id,
                     cjson.dumps(player_ids or []),
                     game_phase,
                     cjson.dumps(global_flags or {}),
                     global_recap,
+                    scene_notes,
                     module_name,
                     status,
                 ),
@@ -183,14 +187,16 @@ class Storage:
         game_phase: Optional[str] = None,
         global_flags: Optional[Dict[str, Any]] = None,
         global_recap: Optional[str] = None,
+        scene_notes: Optional[str] = None,
         status: Optional[str] = None,
     ) -> dict:
         """部分更新世界状态；传入 None 的字段保持不变。
 
         module_name 传值即换绑模组（须是 data/modules 下存在的文件），
         传空串可解绑；global_recap 是宏观记忆固化写回的全局前情提要，
-        传空串可主动清空，传 None 表示本次不改动；status 传值须为
-        ACTIVE/ARCHIVED 之一，终局收尾据此把世界置为归档。
+        传空串可主动清空，传 None 表示本次不改动；scene_notes 是场景级
+        工作上下文（KP 局部手记），传空串可主动清空，传 None 表示不改动；
+        status 传值须为 ACTIVE/ARCHIVED 之一，终局收尾据此把世界置为归档。
         """
         self._require_world(world_id)
         from ..module.loader import resolve as resolve_module
@@ -214,6 +220,9 @@ class Storage:
         if global_recap is not None:
             sets.append("global_recap = ?")
             params.append(global_recap)
+        if scene_notes is not None:
+            sets.append("scene_notes = ?")
+            params.append(scene_notes)
         if status is not None:
             if status not in WORLD_STATUSES:
                 raise ValueError(f"非法世界状态: {status}（可选 {sorted(WORLD_STATUSES)}）")

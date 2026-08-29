@@ -34,6 +34,7 @@ def test_ensure_world_defaults(storage):
     assert world["game_phase"] == "EXPLORATION"
     assert world["global_flags"] == {}
     assert world["global_recap"] == ""  # 迁移 1 补列后默认空串
+    assert world["scene_notes"] == ""  # 迁移 7：场景手记默认空串
     assert world["module_name"] == "test_module.docx"  # 迁移 3：世界绑定模组
 
 
@@ -50,6 +51,13 @@ def test_update_world_global_recap(storage, world_id):
     assert storage.get_world(world_id)["global_recap"] == "队伍在耳室发现卡纳的日记"
     storage.update_world(world_id, global_recap="")  # 传空串主动清空
     assert storage.get_world(world_id)["global_recap"] == ""
+
+
+def test_update_world_scene_notes(storage, world_id):
+    storage.update_world(world_id, scene_notes="酒保态度防备，隐瞒密室存在；暗门线索已侦破")
+    assert storage.get_world(world_id)["scene_notes"] == "酒保态度防备，隐瞒密室存在；暗门线索已侦破"
+    storage.update_world(world_id, scene_notes="")  # 传空串主动清空（场景转换自然遗忘）
+    assert storage.get_world(world_id)["scene_notes"] == ""
 
 
 def test_update_world_partial_keeps_others(storage, world_id):

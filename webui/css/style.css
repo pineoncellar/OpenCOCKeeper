@@ -273,6 +273,17 @@ html, body {
     overflow: hidden;
 }
 
+/* 世界项内的当前场景手记（scene_notes）：与前情提要并列，斜体弱化区分 */
+.inspector-world-notes {
+    font-size: 11px;
+    color: var(--accent-blue);
+    margin-top: 4px;
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .inspector-empty {
     color: var(--text-muted);
     font-size: 13px;
@@ -325,6 +336,7 @@ html, body {
 
 .inspector-ov-item label,
 .inspector-recap label,
+.inspector-notes label,
 .inspector-inventory label {
     font-size: 11px;
     color: var(--text-muted);
@@ -341,6 +353,17 @@ html, body {
 }
 
 .inspector-recap p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.5;
+}
+
+.inspector-notes {
+    padding: 8px 0;
+}
+
+.inspector-notes p {
     font-size: 12px;
     color: var(--text-secondary);
     margin-top: 4px;
@@ -1220,6 +1243,22 @@ html, body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* 世界项内的当前场景手记（KP 局部手记）：斜体弱化，悬停 title 看全文 */
+.world-scene-notes {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-style: italic;
+}
+
+.world-item.active .world-scene-notes {
+    color: var(--bg-primary);
+    opacity: 0.85;
 }
 
 .worlds-empty {
