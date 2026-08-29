@@ -18,10 +18,6 @@ from src.core.prompts import get_prompt
 # 收尾工具名：主 Agent 信息完备后调用即交卷，闭环据此提前收敛
 PRESENT_DIRECTIVE_NAME = "present_directive"
 
-# 场景手记字符上限（400~600 区间取上限）：既是防膨胀，也是"自然遗忘"的强制约束——
-# 手记写不下时被压缩覆盖，随场景转换整块覆写、无状态残留（软状态，程序零解析）
-SCENE_NOTES_MAX_CHARS = 600
-
 # 结局类型：跑团圈通用三分类，缺失/非法时归一化兜底为 TD（真实结局）
 ENDING_TYPE_HD = "HD"
 ENDING_TYPE_TD = "TD"
@@ -45,10 +41,6 @@ def build_present_directive_schema() -> Dict[str, Any]:
                     "narrative_directive": {
                         "type": "string",
                         "description": get_prompt("directive.params.narrative_directive"),
-                    },
-                    "scene_notes": {
-                        "type": "string",
-                        "description": get_prompt("directive.params.scene_notes"),
                     },
                     "is_ending": {
                         "type": "boolean",
@@ -80,7 +72,6 @@ class NarrativeDirective:
     turn_num: int                             # 本轮轮次号
     converged: bool = True                    # 是否经 present_directive 正常交卷（False=文本降级）
     checks: List[dict] = field(default_factory=list)  # 本轮检定结果权威副本（掷骰值/成功等级，透传 Narrator）
-    scene_notes: str = ""                     # 本轮交卷携带的场景手记（软状态，程序不解析，非空才写回）
     is_ending: bool = False                   # 是否终局轮（模型权威的叙事信号，非程序判定）
     ending_type: str = ""                     # 终局类型 HD/TD/BD，非终局为空串
 
@@ -98,26 +89,6 @@ def extract_narrative_directive(
     if isinstance(value, str) and value.strip():
         return value.strip()
     return fallback
-
-
-def extract_scene_notes(arguments: Optional[dict]) -> str:
-    """从收尾调用参数提取场景级工作上下文（KP 局部手记）；缺失/非文本/空白降级空串。
-
-    手记纯文本软状态，程序不解析子字段；提取时清理首尾空白并截断到
-    SCENE_NOTES_MAX_CHARS——上限既是防膨胀，也是"自然遗忘"的强制约束。
-    返回空串表示模型未提供，调用方据此保留旧值、不覆写不清空。
-    """
-    if not arguments:
-        return ""
-    value = arguments.get("scene_notes")
-    if not isinstance(value, str):
-        return ""
-    text = value.strip()
-    if not text:
-        return ""
-    if len(text) > SCENE_NOTES_MAX_CHARS:
-        text = text[:SCENE_NOTES_MAX_CHARS].rstrip()
-    return text
 
 
 def extract_ending(arguments: Optional[dict]) -> Tuple[bool, str]:

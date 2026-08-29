@@ -104,11 +104,4 @@ MIGRATIONS: list[list[str]] = [
         "ALTER TABLE world_state ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'",
         "CREATE INDEX IF NOT EXISTS idx_world_status ON world_state(status)",
     ],
-    # 迁移 7：world_state 增加 scene_notes 场景级工作上下文列（KP 局部手记）
-    # 纯文本软状态：宏观 global_recap 与微观近程对话之间的中间层，随 present_directive
-    # 交卷整块覆写、场景转换自然遗忘；程序零解析、不入 state_diff、不参与回档
-    # （详见 docs/场景级工作上下文（KP局部手记）.md）
-    [
-        "ALTER TABLE world_state ADD COLUMN scene_notes TEXT NOT NULL DEFAULT ''",
-    ],
 ]

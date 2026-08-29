@@ -60,14 +60,12 @@ def test_assemble_basic(storage, world_id):
 
 
 def test_assemble_empty_world(storage, world_id):
-    """空世界兜底：无调查员、无轮次、空 recap/空手记均不抛错，渲染占位文本。"""
+    """空世界兜底：无调查员、无轮次、空 recap 均不抛错，渲染占位文本。"""
     bundle = assemble(storage, world_id)
     assert "（暂无绑定调查员）" in bundle.snapshot
     assert "（暂无前情提要）" in bundle.snapshot
-    assert "【场景手记】\n（暂无）" in bundle.snapshot  # 空场景手记占位
     assert "（暂无历史对话）" in bundle.recent
     assert bundle.pc_count == 0 and bundle.recent_count == 0
-    assert bundle.scene_notes == "（暂无）"
 
 
 def test_assemble_background_not_injected(storage, world_id):
@@ -89,22 +87,6 @@ def test_assemble_background_not_injected(storage, world_id):
     assert "【角色背景】" not in bundle.snapshot
     assert "形象描述" not in bundle.snapshot
     assert "真正的力量" not in bundle.snapshot
-
-
-def test_assemble_scene_notes_rendered(storage, world_id):
-    """场景手记渲染：位于快照末尾（调查员状态之后）、近程对话之前。"""
-    storage.update_world(
-        world_id,
-        player_ids=["pc_01"],
-        scene_notes="酒保态度防备，隐瞒密室；暗门线索已侦破",
-    )
-    _seed(storage, world_id)
-    bundle = assemble(storage, world_id, action="继续盘问酒保")
-    assert "【场景手记】" in bundle.snapshot
-    assert "酒保态度防备，隐瞒密室；暗门线索已侦破" in bundle.snapshot
-    assert bundle.snapshot.index("【场景手记】") > bundle.snapshot.index("【调查员状态】")
-    assert bundle.prompt.index("【场景手记】") < bundle.prompt.index("第 1 轮 玩家")
-    assert bundle.scene_notes == "酒保态度防备，隐瞒密室；暗门线索已侦破"
 
 
 def test_assemble_pc_shows_occupation(storage, world_id):

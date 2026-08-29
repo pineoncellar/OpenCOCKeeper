@@ -88,10 +88,7 @@ class StateInspector {
                 <div class="inspector-world-meta">
                     模组: ${this._esc(w.module_name || '无')} · 实体: ${w.entity_count || 0}
                 </div>
-                <div class="inspector-world-recap">${this._esc(w.global_recap || '')}</div>
-                ${w.scene_notes
-                    ? `<div class="inspector-world-notes" title="${this._esc(w.scene_notes)}">【场景手记】${this._esc(this._clip(w.scene_notes, 40))}</div>`
-                    : ''}`;
+                <div class="inspector-world-recap">${this._esc(w.global_recap || '')}</div>`;
             item.addEventListener('click', () => this._selectWorld(w.world_id));
             list.appendChild(item);
         }
@@ -166,9 +163,6 @@ class StateInspector {
                     <div class="inspector-ov-item"><label>记忆条数</label><span id="inspector-memory-count">加载中...</span></div>
                 </div>
                 <div class="inspector-recap"><label>前情提要</label><p>${this._esc(recapShort)}</p></div>
-                ${w.scene_notes
-                    ? `<div class="inspector-notes"><label>场景手记</label><p title="${this._esc(w.scene_notes)}">${this._esc(w.scene_notes)}</p></div>`
-                    : ''}
             </div>
             ${this._renderEntities()}
             ${this._renderTurns()}
@@ -312,12 +306,6 @@ class StateInspector {
         if (!this.statusEl) return;
         this.statusEl.textContent = msg;
         this.statusEl.className = 'inspector-status ' + level;
-    }
-
-    _clip(text, limit = 40) {
-        // 状态：折叠空白并截断，悬停 title 保留全文
-        const s = (text || '').replace(/\s+/g, ' ').trim();
-        return s.length > limit ? s.slice(0, limit) + '…' : s;
     }
 
     _esc(text) {

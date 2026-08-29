@@ -221,23 +221,15 @@ def make_player_input_event(
 
 def make_directive_event(
     directive: str,
-    scene_notes: str = "",
     world_id: str = "", turn_num: int = 0,
 ) -> TraceEvent:
-    """构造导演手记事件：记录 Director 交卷提取的叙事决策大纲（Markdown 自由文本）。
-
-    scene_notes 为本轮交卷携带的场景级工作上下文（KP 局部手记），非空才入事件，
-    供 WebUI 双 Agent 对比区展示与审计回查。
-    """
-    data: dict = {"directive": directive}
-    if scene_notes:
-        data["scene_notes"] = scene_notes
+    """构造导演手记事件：记录 Director 交卷提取的叙事决策大纲（Markdown 自由文本）。"""
     return TraceEvent(
         timestamp=_now(),
         event_type="directive",
         world_id=world_id,
         turn_num=turn_num,
-        data=data,
+        data={"directive": directive},
     )
 
 

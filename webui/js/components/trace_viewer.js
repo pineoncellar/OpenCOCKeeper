@@ -131,12 +131,6 @@ class TraceViewer {
         }
     }
 
-    _clipSceneNotes(text, limit = 36) {
-        // 状态：折叠空白并截断，标题提示（title）保留全文供悬停查看
-        const s = (text || '').replace(/\s+/g, ' ').trim();
-        return s.length > limit ? s.slice(0, limit) + '…' : s;
-    }
-
     _renderWorlds() {
         if (!this.worldsListEl) return;
         this.worldsListEl.innerHTML = '';
@@ -159,14 +153,6 @@ class TraceViewer {
             meta.textContent = `${w.turn_count} 轮` + (w.latest_turn != null ? ` · 至 Turn ${w.latest_turn}` : '');
             item.appendChild(name);
             item.appendChild(meta);
-            // 状态：当前场景手记（KP 局部手记）——截断展示、悬停看全文，空则不渲染
-            if (w.scene_notes) {
-                const note = document.createElement('div');
-                note.className = 'world-scene-notes';
-                note.textContent = this._clipSceneNotes(w.scene_notes);
-                note.title = w.scene_notes;
-                item.appendChild(note);
-            }
             item.addEventListener('click', () => this.selectWorld(w.world_id));
             this.worldsListEl.appendChild(item);
         }
@@ -333,7 +319,6 @@ class TraceViewer {
         // 状态：重置当前 turn 的累积数据
         this._currentPlayerInput = '';
         this._currentDirective = '';
-        this._currentSceneNotes = '';
         this._currentNarration = '';
         this._currentToolCalls = [];
 
@@ -363,9 +348,8 @@ class TraceViewer {
                     converged = true;
                     break;
                 case 'directive':
-                    // 状态：导演手记落位（含可选场景手记），渲染结束时并入双 Agent 对比区
+                    // 状态：导演手记落位，渲染结束时并入双 Agent 对比区
                     this._currentDirective = (event.data || {}).directive || '';
-                    this._currentSceneNotes = (event.data || {}).scene_notes || '';
                     break;
                 case 'narration':
                     // 状态：演播文本落位，渲染结束时并入双 Agent 对比区
@@ -379,14 +363,10 @@ class TraceViewer {
         this.turns[key].converged = converged;
         this.statusTools.textContent = `Tools: ${toolCallsInTurn}`;
 
-        // 状态：如有双 Agent 数据则显示对比区（导演手记后附场景手记小节）
+        // 状态：如有双 Agent 数据则显示对比区
         if (this._currentDirective || this._currentNarration) {
             this.dualEl.style.display = 'flex';
-            let directiveText = this._currentDirective || '(无手记)';
-            if (this._currentSceneNotes) {
-                directiveText += '\n\n【场景手记】\n' + this._currentSceneNotes;
-            }
-            this.directiveEl.textContent = directiveText;
+            this.directiveEl.textContent = this._currentDirective || '(无手记)';
             this.narrationEl.textContent = this._currentNarration || '(无演播)';
         }
     }
@@ -578,7 +558,6 @@ class TraceViewer {
 
     setDualContent(directive, narration) {
         this._currentDirective = directive || '';
-        this._currentSceneNotes = '';
         this._currentNarration = narration || '';
         if (this.dualEl) {
             this.dualEl.style.display = 'flex';

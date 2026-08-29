@@ -82,28 +82,9 @@ def _parse_int(raw: Optional[str], default: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, v))
 
 
-def _merge_scene_notes(storage, worlds: list) -> list:
-    """为世界摘要附上当前场景手记（scene_notes，来自 SQLite world_state）。
-
-    storage 未注入（独立 WebUI 模式）时保持原摘要；世界无手记或单世界读取失败
-    附空串，绝不让手记缺失阻断世界列表加载。
-    """
-    if storage is None:
-        return worlds
-    for w in worlds:
-        try:
-            world = storage.get_world(w["world_id"])
-        except Exception:  # noqa: BLE001  单世界读取失败不影响列表
-            world = None
-        w["scene_notes"] = ((world or {}).get("scene_notes") or "").strip()
-    return worlds
-
-
 async def api_trace_worlds(request: web.Request) -> web.Response:
-    """GET /api/trace/worlds — 有 trace 记录的世界列表（含轮数/最新轮/当前场景手记）。"""
-    worlds = get_trace_store().world_summaries()
-    _merge_scene_notes(request.app.get("storage"), worlds)
-    return web.json_response({"worlds": worlds})
+    """GET /api/trace/worlds — 有 trace 记录的世界列表（含轮数/最新轮）。"""
+    return web.json_response({"worlds": get_trace_store().world_summaries()})
 
 
 async def api_trace_turns(request: web.Request) -> web.Response:

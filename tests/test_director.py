@@ -70,65 +70,6 @@ async def test_run_turn_converges_and_persists(storage, world_id, fake_llm):
     assert storage.get_turn(world_id, 1) is None
 
 
-def _directive_step(*, scene_notes: str = "", narrative: str = "### 规则裁决\n- 无"):
-    """首轮直接 present_directive 交卷；scene_notes 非空才携带（模拟模型漏填）。"""
-
-    def step(messages):
-        args = {"narrative_directive": narrative}
-        if scene_notes:
-            args["scene_notes"] = scene_notes
-        return {"text": None, "tool_calls": [
-            {"id": "c1", "name": "present_directive", "arguments": args}]}
-
-    return step
-
-
-async def test_run_turn_writes_scene_notes(storage, world_id, fake_llm):
-    """交卷携带场景手记：世界写回 scene_notes，契约带出本轮手记。"""
-    _seed_pc(storage, world_id)
-    notes = "酒保态度防备，隐瞒密室；暗门线索已侦破"
-    fake_llm.set_response("smart", _directive_step(scene_notes=notes))
-    director = Director(storage, llm=fake_llm.call)
-    directive = await director.run_turn(world_id, "继续盘问酒保")
-    assert directive.scene_notes == notes
-    assert storage.get_world(world_id)["scene_notes"] == notes
-
-
-async def test_run_turn_missing_scene_notes_keeps_old(storage, world_id, fake_llm):
-    """交卷未携带 scene_notes：已有手记保持不变（缺失不清空防丢）。"""
-    _seed_pc(storage, world_id)
-    storage.update_world(world_id, scene_notes="旧场景手记")
-    fake_llm.set_response("smart", _directive_step(scene_notes=""))
-    director = Director(storage, llm=fake_llm.call)
-    directive = await director.run_turn(world_id, "行动")
-    assert directive.scene_notes == ""
-    assert storage.get_world(world_id)["scene_notes"] == "旧场景手记"
-
-
-async def test_run_turn_scene_notes_truncated(storage, world_id, fake_llm):
-    """超长手记被截断到 SCENE_NOTES_MAX_CHARS，写入与契约一致。"""
-    from src.agent.directive import SCENE_NOTES_MAX_CHARS
-
-    _seed_pc(storage, world_id)
-    long_notes = "字" * (SCENE_NOTES_MAX_CHARS + 100)
-    fake_llm.set_response("smart", _directive_step(scene_notes=long_notes))
-    director = Director(storage, llm=fake_llm.call)
-    directive = await director.run_turn(world_id, "行动")
-    assert len(directive.scene_notes) == SCENE_NOTES_MAX_CHARS
-    assert len(storage.get_world(world_id)["scene_notes"]) == SCENE_NOTES_MAX_CHARS
-
-
-async def test_run_turn_scene_notes_text_fallback_keeps_old(storage, world_id, fake_llm):
-    """文本降级路径无手记来源：不写回，已有手记保持不变。"""
-    _seed_pc(storage, world_id)
-    storage.update_world(world_id, scene_notes="旧场景手记")
-    fake_llm.set_response("smart", lambda messages: "降级叙事文本")
-    director = Director(storage, llm=fake_llm.call)
-    directive = await director.run_turn(world_id, "确认伤口")
-    assert directive.scene_notes == ""
-    assert storage.get_world(world_id)["scene_notes"] == "旧场景手记"
-
-
 async def test_run_turn_text_fallback(storage, world_id, fake_llm):
     """模型直接文本收敛（未调收尾工具）：以最终文本为导演手记降级，converged=False。"""
     _seed_pc(storage, world_id)

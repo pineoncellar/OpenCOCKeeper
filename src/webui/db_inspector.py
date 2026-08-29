@@ -66,7 +66,6 @@ async def api_list_worlds(request: web.Request) -> web.Response:
                 "status": w.get("status", "ACTIVE"),
                 "module_name": w.get("module_name"),
                 "global_recap": (w.get("global_recap") or "")[:120],
-                "scene_notes": w.get("scene_notes") or "",
                 "entity_count": len(entities),
                 "player_ids": w.get("player_ids") or [],
             }
