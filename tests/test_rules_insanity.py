@@ -91,7 +91,7 @@ def test_triggered_summary_bout_and_duration():
     assert r.checks[1]["success_level_label"] == "抽中：失忆"
 
 
-def test_table8_has_ten_entries():
+def test_table7_has_ten_entries():
     assert len(SUMMARY_BOUTS) == 10
 
 

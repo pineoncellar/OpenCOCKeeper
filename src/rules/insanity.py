@@ -79,7 +79,7 @@ def resolve_temporary_insanity(
     """CoC 7th 临时疯狂判定：损失阈值 -> 智力保护 -> 总结发作抽表 -> 衍生 HP。
 
     骰序（确定性测试依赖此顺序）：
-      先智力检定 d100（十位/个位两骰），成功才掷 1D10 抽表 8；
+      先智力检定 d100（十位/个位两骰），成功才掷 1D10 抽表 7；
       抽中恐惧/躁狂再掷 1D100 级联查表 9/10；最后掷 1D10 定持续小时数。
     current_san 当前未参与计算（官方为固定 5 点阈值），保留供后续扩展不定疯狂时使用。
     """
@@ -103,7 +103,7 @@ def resolve_temporary_insanity(
     if not int_result.is_success:
         return InsanityResult(triggered=False, reason="int_protection", checks=[int_check])
 
-    # 状态：智力检定通过——理解恐怖，掷 1D10 抽取表 8 总结发作
+    # 状态：智力检定通过——理解恐怖，掷 1D10 抽取表 7 疯狂发作
     bout_value = roll_ndn(1, 10, rng)[-1]
     bout = SUMMARY_BOUTS[bout_value]
     bout_result: Dict[str, Any] = {
@@ -156,7 +156,7 @@ def resolve_temporary_insanity(
         target_hp = max(1, current_hp // 2)
         hp_loss = max(0, current_hp - target_hp)
 
-    # 状态：最后掷 1D10 确定持续小时数（骰序：INT -> 表8 -> 级联表9/10 -> 时长）
+    # 状态：最后掷 1D10 确定持续小时数（骰序：INT -> 表7 -> 级联表9/10 -> 时长）
     duration = roll_ndn(1, 10, rng)[-1]
     bout_result["duration_hours"] = duration
     # 状态：时长并入总结发作权威条目，Narrator 按【检定结果权威区】原样报幕
