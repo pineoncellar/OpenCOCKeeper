@@ -14,16 +14,6 @@
 
 ---
 
-## 特性
-
-- **AI 守秘人自主裁决**：主 Agent 通过 Function Calling 工具闭环，自主决定何时查阅模组、检索记忆、执行 d100 检定。
-- **决策与演播分离**：Director（导演）只做规则判定与剧情走向，输出《叙事决策大纲》；Narrator（润色 Agent）不参与任何规则推演，专注克苏鲁氛围的文学演播。
-- **物理真相 + 语义记忆双轨**：HP/SAN/背包等硬数值由 SQLite 严格掌控，基于 `state_diff` 增量秒级回档；长程剧情由 RAG 向量记忆维护，支持按轮次精确撤销。
-- **多世界绝对隔离**：以 `world_id` 为唯一隔离维度，可并行运行多个模组世界；支持角色卡（xlsx）导入、开场演播、结团归档与全量存档/恢复。
-- **WebUI 调试控制台**：浏览器交互跑团 + 实时 trace 可视化 + 数据编辑器 + 提示词在线热编辑。
-
----
-
 ## 快速开始
 
 **前置**：Python 3.11+，[uv](https://docs.astral.sh/uv/) 包管理器。
@@ -57,17 +47,6 @@ uv run main.py
 
 ---
 
-## 核心设计
-
-| 概念 | 说明 |
-|---|---|
-| **决策与演播分离** | 主 Agent（Director）只做逻辑裁决与剧情走向，输出《叙事决策大纲》；润色 Agent（Narrator）只把大纲渲染成沉浸式文本，两者使用不同模型档位（裁决 low temperature / 演播较高 temperature）。 |
-| **物理真相与语义记忆双轨** | 硬数值（HP/SAN/背包/技能）由 SQLite 掌控，每轮记录 `state_diff` 增量，取反即秒级回档；剧情事实由 Mem0 RAG 维护，按 `turn_num` 物理删除实现双侧同步撤销。 |
-| **世界绝对隔离** | 消息来源仅在适配器层映射为 `world_id`，下游存储 / Agent / 工具严格基于 world_id 隔离，多世界并行互不干扰。 |
-| **原子工具闭环** | 主 Agent 经 Function Calling 自主调用原子工具（查模组 / 查记忆 / 查规则 / 检定改状态 / 管理 Tag），信息不足即检索、信息充足即收敛交卷，永不凭空脑补。 |
-
----
-
 ## 技术栈
 
 - **语言 / 环境**：Python 3.11+，uv 依赖管理
@@ -90,5 +69,4 @@ uv run main.py
 - [Chaosium Inc.](https://www.chaosium.com/) - 创造了精彩的 Call of Cthulhu 游戏
 - [Google DeepMind Concordia](https://github.com/google-deepmind/concordia) - 多智能体架构灵感来源
 - [ChatRPG v2](https://arxiv.org/abs/2210.03620) - 理论基础参考
-- [Google Gemini](https://gemini.google.com/) - 提供代码编写协助与结对编程支持
 - [COC7thChm](https://github.com/COCchm/COC7thChm) - 整理了 COC7 版规则文件
