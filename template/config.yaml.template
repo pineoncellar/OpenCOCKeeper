@@ -96,6 +96,11 @@ context:
   opening:
     llm_tier: "smart"              # 开场裁决档（对齐 Director）
     temperature: 0.4                # 开场裁决温度覆盖（None 则用模型档位默认）
+  # 战斗裁判 Agent（Combat Agent）：战斗轮裁决模型档位（专职战术，聚焦收敛）
+  combat:
+    llm_tier: "smart"              # 战斗裁决档（对齐 Director）
+    temperature: 0.3                # 微低于导演档，压缩战斗数值发散
+    max_iterations: 6               # 单实体裁决工具轮次预算（每行动者独立闭环，防触顶）
 
 # ------------------------------------------------------------
 # 适配器层

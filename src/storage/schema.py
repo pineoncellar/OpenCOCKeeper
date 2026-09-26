@@ -104,4 +104,11 @@ MIGRATIONS: list[list[str]] = [
         "ALTER TABLE world_state ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'",
         "CREATE INDEX IF NOT EXISTS idx_world_status ON world_state(status)",
     ],
+    # 迁移 8：world_state 增加 combat_runtime 战斗运行时软状态列（JSON）
+    # 战场切片（in_combat/round_num/turn_order/cursor/pending_reaction/outnumbered）为
+    # 程序拥有的权威状态，Combat Agent 读写、绝不进 state_diff 参与回档逆向；
+    # 物理真相（HP/Tag）仍走 state_diff，回档后由战斗恢复逻辑依据存活实体重放收敛
+    [
+        "ALTER TABLE world_state ADD COLUMN combat_runtime TEXT NOT NULL DEFAULT '{}'",
+    ],
 ]

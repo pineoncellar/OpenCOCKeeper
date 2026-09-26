@@ -147,6 +147,7 @@ class AbstractAdapter(ABC):
                 memory=self.memory,
                 worker=self.worker,
                 on_turn_committed=self._on_turn_committed,
+                on_step_narrated=self._on_step_narrated,
             )
             if turn.ended:  # 状态：终局轮——渲染结算卡片并退回主菜单
                 self._world_id = None
@@ -165,6 +166,16 @@ class AbstractAdapter(ABC):
         """落库钩子：通知后台固化 Worker 安排该世界固化，失败不抛给管线。"""
         if self.worker is not None:
             self.worker.trigger_world(world_id)  # 状态：事件触发双通道之一，立即返回不阻塞
+
+    async def _on_step_narrated(
+        self, world_id: str, turn_num: int, narration: str
+    ) -> None:
+        """中间行动步的外推钩子：默认丢弃，子类重写以流式下发。
+
+        战斗批量调度在“后面仍有 NPC 待动”的步骤完成后调用本钩子，
+        让适配器逐动下发而不是等整批推完再一次性返回。
+        """
+        return None
 
     # ---- 内部路由：系统命令分派 ----
 

@@ -48,6 +48,11 @@ NARRATOR_SYSTEM = get_prompt("narrator.system")
 NARRATOR_ENDING_SYSTEM = get_prompt("narrator.ending_system")
 
 
+# 战斗演播 System 指令（战斗轮专用：去场景报幕、短句高密度、聚焦行动主体）；
+# 正文外置 prompts.yaml（narrator.combat_system），import 时解析一次供导出/测试引用
+NARRATOR_COMBAT_SYSTEM = get_prompt("narrator.combat_system")
+
+
 # 结局类型标签：供终局演播与终局结算卡片展示
 _ENDING_LABELS = {
     "HD": "完美结局 (Happy End)",
@@ -125,23 +130,29 @@ def build_narrator_messages(
     recent_text: Optional[str] = None,
     checks_text: Optional[str] = None,
     ending: bool = False,
+    combat: bool = False,
 ) -> List[dict]:
     """构造 Narrator 的 system + user 消息，可直接喂 llm。
 
     directive 为 NarrativeDirective（手记 + checks 权威区）；
     recent_text 已给则跳过内部渲染（调用方复用装配器产物时用）；
     checks_text 已给则跳过内部渲染；action 为本轮玩家行动；
-    ending=True 时改用 NARRATOR_ENDING_SYSTEM 终局演播契约，并注入【结局类型】。
+    ending=True 时改用 NARRATOR_ENDING_SYSTEM 终局演播契约，并注入【结局类型】；
+    combat=True 时改用战斗专用演播契约（去场景报幕、短句高密度、聚焦行动主体），
+    且 action 为 None 表示本轮由 NPC 自主行动（不交还主动权）。
     """
     handoff = (directive.narrative_directive or "").strip() or "（本轮无手记）"
     if recent_text is None:
         recent_text = _render_recent(recent)
     if checks_text is None:
         checks_text = _format_checks(directive.checks or [])
-    # 状态：终局/常规契约每次动态读配置（热重载生效）
-    system = (
-        get_prompt("narrator.ending_system") if ending else get_prompt("narrator.system")
-    )
+    # 状态：终局/常规/战斗 每次动态读配置（热重载生效）
+    if ending:
+        system = get_prompt("narrator.ending_system")
+    elif combat:
+        system = get_prompt("narrator.combat_system")
+    else:
+        system = get_prompt("narrator.system")
     user = [f"【叙事决策大纲】\n{handoff}", f"【检定结果权威区】\n{checks_text}", f"【近程对话历史】\n{recent_text}"]
     if ending and getattr(directive, "ending_type", ""):
         user.append(f"【结局类型】\n{ending_label(directive.ending_type)}")
@@ -200,12 +211,14 @@ class Narrator:
         recent_text: Optional[str] = None,
         ending: Optional[bool] = None,
         world_id: str = "",
+        combat: bool = False,
     ) -> str:
         """把一份《叙事决策大纲》翻译成玩家叙事文本。
 
         recent 为近程轮次记录（通常由管线从 storage 读取，不含本轮）；
         recent_text 已给则直接使用；ending 缺省自动取 directive.is_ending，
         为 True 时走 NARRATOR_ENDING_SYSTEM 终局演播（闭幕感 + 后日谈，不交还主动权）；
+        combat=True 时走战斗专用演播契约（去场景报幕、短句高密度）；
         world_id 为可选项，提供时 LLM trace 按世界隔离写入；
         LLM 失败或产出空文本抛 NarratorError。
         """
@@ -217,6 +230,7 @@ class Narrator:
             action=action,
             recent_text=recent_text,
             ending=ending,
+            combat=combat,
         )
         # 状态：发布 LLM 请求事件到 TraceBus（含完整 messages），供 WebUI 展示演播提示词
         await get_trace_bus().publish(make_llm_request_event(

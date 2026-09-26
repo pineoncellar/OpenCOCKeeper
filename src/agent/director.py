@@ -100,6 +100,7 @@ class Director:
         runner.register(PRESENT_DIRECTIVE_NAME, _accept_directive)
         runner.reset_diffs()
         runner.reset_checks()
+        runner.reset_battlefield()
         result = await run_tool_loop(
             self._llm,
             self._tier,
@@ -158,6 +159,15 @@ class Director:
         await get_trace_bus().publish(make_directive_event(
             narrative, world_id=world_id, turn_num=turn,
         ))
+        # 状态：本轮若调用了 start_combat，程序生成战斗开场公告（分界线 + 先攻顺序），
+        # 透传 Narrator 在演播末尾正式宣告战斗开始
+        combat_intro = ""
+        if runner.battlefield:
+            from src.agent.combat import render_combat_intro
+
+            combat_intro = render_combat_intro(
+                self._storage, world_id, runner.battlefield
+            )
         return NarrativeDirective(
             state_changes=record["state_diff"],
             narrative_directive=narrative,
@@ -166,4 +176,5 @@ class Director:
             checks=runner.collected_checks,
             is_ending=is_ending,
             ending_type=ending_type,
+            combat_intro=combat_intro,
         )

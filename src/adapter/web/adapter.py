@@ -170,6 +170,24 @@ class WebAdapter(AbstractAdapter):
         except Exception as e:  # noqa: BLE001  推送失败不影响本轮交付
             logger.warning(f"state_diff 广播失败 world={world_id} turn={turn_num}: {e}")
 
+    # ====================================================================
+    # 战斗中间步外推：逐动流式下发
+    # ====================================================================
+
+    async def _on_step_narrated(
+        self, world_id: str, turn_num: int, narration: str
+    ) -> None:
+        """战斗中间行动步即时推送一条叙事帧，形成逐动流式战况播报。
+
+        状态：末尾步（轮回玩家/挂起/账战）不走本钩子，仍作为正常返回值交付；
+        推送失败不影响战斗推送（上一层已做异常隔离）。
+        """
+        if not narration:
+            return
+        await self.send(OutboundMessage.narrative(
+            narration, session_id=self.session_id, world_id=world_id,
+        ))
+
     async def _broadcast_state_diff(self, world_id: str, turn_num: int) -> None:
         """推送本轮落库后的状态增量：叙事/检定权威副本 + 变更后实体快照。
 

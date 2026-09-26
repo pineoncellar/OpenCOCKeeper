@@ -221,6 +221,7 @@ async def run_narrated_turn(
     recent_limit: Optional[int] = None,
     rng: Optional[object] = None,
     on_turn_committed: Optional[Callable[[str, int], Awaitable[None]]] = None,
+    on_step_narrated: Optional[Callable[[str, int, str], Awaitable[None]]] = None,
     memory: Optional[Any] = None,
     worker: Optional[Any] = None,
 ) -> NarratedTurn:
@@ -252,6 +253,23 @@ async def run_narrated_turn(
     await get_trace_bus().publish(make_player_input_event(
         action, world_id=world_id, turn_num=turn,
     ))
+    # 状态：战斗分流——战斗软状态 in_combat 为真时本回合交给 Combat Agent 裁决，
+    # 不进入主 Agent（Director）；软硬两分：物理真相经 state_diff 落库，
+    # 战场切片由 Combat Agent 依据存活实体重放收敛，回档零摩擦
+    cc = storage.get_combat_runtime(world_id)
+    if cc.get("in_combat"):
+        from src.agent.combat import run_combat_batch as _run_combat_batch
+
+        # 状态：战斗轮走批量调度——先结算玩家行动，再自动推送后续 NPC 回合，
+        # 遇挂起/轮回 PC/账战才交还玩家；中间步经 on_step_narrated 即时外推
+        ct = await _run_combat_batch(
+            storage, world_id, action,
+            llm=llm, narrator=narrator, tier=tier, temperature=temperature,
+            turn_num=turn, recent_limit=recent_limit, rng=rng,
+            on_turn_committed=on_turn_committed,
+            on_step_narrated=on_step_narrated,
+        )
+        return NarratedTurn(directive=ct.directive, narration=ct.narration)
     directive = await director.run_turn(
         world_id, action, turn_num=turn
     )
@@ -283,6 +301,10 @@ async def run_narrated_turn(
         if t["turn_num"] != directive.turn_num
     ]
     narration = await narrator.narrate(directive, recent=recent, action=action, world_id=world_id)
+    # 状态：开战公告为程序横幅——直接拼接在叙事之前，绝不注入 Narrator 上下文
+    combat_intro = (getattr(directive, "combat_intro", "") or "").strip()
+    if combat_intro:
+        narration = f"{combat_intro}\n\n{narration}"
     logger.info(
         "Narrator 演播完成 world=%s turn=%s 叙事长度=%d",
         world_id, directive.turn_num, len(narration),
@@ -308,4 +330,34 @@ async def run_narrated_turn(
                 f"turn={directive.turn_num}: {e}",
                 exc_info=True,
             )
+    # 状态：开战轮接力——本轮建立了战斗且顺位下一位是 NPC 时，立即自动推送 NPC，
+    # 开战公告作为中间步外推，末尾步（挂起/轮回 PC/账战）作为返回值；
+    # 这样开战公告之后紧跟敌人真实动作，而不是悬停描写空等玩家
+    if combat_intro and storage.get_combat_runtime(world_id).get("in_combat"):
+        from src.agent.combat import current_actor as _combat_current
+        from src.agent.combat import run_combat_batch as _run_combat_batch
+
+        _cc = storage.get_combat_runtime(world_id)
+        _ents = {e["id"]: e for e in storage.get_entities(world_id)}
+        _next = _combat_current(_cc, _ents)
+        if _next is not None and (_ents.get(_next) or {}).get("type") != "PC":
+            if on_step_narrated is not None:
+                try:
+                    await on_step_narrated(world_id, directive.turn_num, narration)
+                except Exception as e:  # noqa: BLE001  外推失败不影响接力
+                    logger.error(
+                        f"开战公告外推失败 world={world_id} turn={directive.turn_num}: {e}",
+                        exc_info=True,
+                    )
+            ct = await _run_combat_batch(
+                storage, world_id, "",
+                llm=llm, narrator=narrator, tier=tier, temperature=temperature,
+                recent_limit=recent_limit, rng=rng,
+                on_turn_committed=on_turn_committed,
+                on_step_narrated=on_step_narrated,
+            )
+            # 状态：无外推回调时把开战公告并入返回值，保证玩家必然看到开战宣告
+            if on_step_narrated is None:
+                ct.narration = f"{narration}\n\n{ct.narration}"
+            return NarratedTurn(directive=ct.directive, narration=ct.narration)
     return NarratedTurn(directive=directive, narration=narration)

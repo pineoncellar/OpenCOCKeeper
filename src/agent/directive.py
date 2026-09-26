@@ -74,6 +74,7 @@ class NarrativeDirective:
     checks: List[dict] = field(default_factory=list)  # 本轮检定结果权威副本（掷骰值/成功等级，透传 Narrator）
     is_ending: bool = False                   # 是否终局轮（模型权威的叙事信号，非程序判定）
     ending_type: str = ""                     # 终局类型 HD/TD/BD，非终局为空串
+    combat_intro: str = ""                    # 战斗开场公告（start_combat 后由程序生成，透传 Narrator 宣布战斗开始）
 
 
 def extract_narrative_directive(

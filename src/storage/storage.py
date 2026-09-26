@@ -28,7 +28,7 @@ from .schema import MIGRATIONS
 _NUMERIC_COLUMNS = frozenset({"hp", "hp_max", "mp", "mp_max", "san", "san_max"})
 _JSON_COLUMNS = frozenset({"attributes_and_skills", "inventory", "tags", "background"})
 _TEXT_COLUMNS = frozenset({"type", "name", "occupation"})
-_WORLD_JSON_FIELDS = frozenset({"player_ids", "global_flags"})
+_WORLD_JSON_FIELDS = frozenset({"player_ids", "global_flags", "combat_runtime"})
 _WORLD_TEXT_FIELDS = frozenset({"game_phase", "global_recap"})
 
 # 世界生命周期状态：ACTIVE 可游玩 / ARCHIVED 已结团归档（只读、Worker 跳过）
@@ -46,6 +46,7 @@ def _decode_world(row: sqlite3.Row) -> dict:
     result = dict(row)
     result["player_ids"] = cjson.loads_or(result.get("player_ids")) or []
     result["global_flags"] = cjson.loads_or(result.get("global_flags")) or {}
+    result["combat_runtime"] = cjson.loads_or(result.get("combat_runtime")) or {}
     return result
 
 
@@ -124,7 +125,7 @@ class Storage:
         强制约束：创建世界必须绑定 data/modules 下已存在的模组文件，
         缺省/空串/文件不存在一律抛 ModuleFileMissingError 且世界不创建
         （文件校验在事务前）；已存在的世界保持 INSERT OR IGNORE 幂等语义，
-        换绑走 update_world。
+        换绑走 update_world。combat_runtime 战场切片为软状态，新建世界默认为空。
         """
         from ..module.loader import resolve as resolve_module
         resolve_module(module_name)  # 强制必填：非空 + 白名单 + 文件存在  # 状态：绑定校验
@@ -184,13 +185,15 @@ class Storage:
         global_flags: Optional[Dict[str, Any]] = None,
         global_recap: Optional[str] = None,
         status: Optional[str] = None,
+        combat_runtime: Optional[Dict[str, Any]] = None,
     ) -> dict:
         """部分更新世界状态；传入 None 的字段保持不变。
 
         module_name 传值即换绑模组（须是 data/modules 下存在的文件），
         传空串可解绑；global_recap 是宏观记忆固化写回的全局前情提要，
         传空串可主动清空，传 None 表示本次不改动；status 传值须为
-        ACTIVE/ARCHIVED 之一，终局收尾据此把世界置为归档。
+        ACTIVE/ARCHIVED 之一，终局收尾据此把世界置为归档；
+        combat_runtime 传 dict 即整体覆写战场切片（软状态，仅读取覆盖不参与回档）。
         """
         self._require_world(world_id)
         from ..module.loader import resolve as resolve_module
@@ -219,12 +222,26 @@ class Storage:
                 raise ValueError(f"非法世界状态: {status}（可选 {sorted(WORLD_STATUSES)}）")
             sets.append("status = ?")
             params.append(status)
+        if combat_runtime is not None:
+            sets.append("combat_runtime = ?")
+            params.append(cjson.dumps(combat_runtime))
         if sets:
             params.append(world_id)
             with self._db.transaction() as conn:
                 conn.execute(
                     f"UPDATE world_state SET {', '.join(sets)} WHERE world_id = ?",
                     params,
+                )
+        return self.get_world(world_id)
+
+    def get_combat_runtime(self, world_id: str) -> dict:
+        """读取战斗运行时软状态（无则空字典）；Combat Agent 的战场切片唯一读写口。"""
+        world = self.get_world(world_id)
+        return (world or {}).get("combat_runtime") or {}
+
+    def set_combat_runtime(self, world_id: str, cc: Dict[str, Any]) -> dict:
+        """整体覆写战斗运行时软状态（不含则清除战斗标记）。"""
+        return self.update_world(world_id, combat_runtime=cc or {}
                 )
         return self.get_world(world_id)
 
@@ -750,10 +767,10 @@ class Storage:
         turns = list(data.get("turns") or [])
         history = list(data.get("history") or [])
         with self._db.transaction() as conn:
-            # 世界行：world_id 改写，其余列保留（含迁移列 global_recap/module_name/status）
+            # 世界行：world_id 改写，其余列保留（含迁移列 global_recap/module_name/status/combat_runtime）
             wcols = [
                 "world_id", "player_ids", "game_phase", "global_flags", "created_at",
-                "global_recap", "module_name", "status",
+                "global_recap", "module_name", "status", "combat_runtime",
             ]
             wvals = [
                 world_id,
@@ -764,6 +781,7 @@ class Storage:
                 world.get("global_recap", ""),
                 world.get("module_name", ""),
                 world.get("status", "ACTIVE"),
+                world.get("combat_runtime", "{}"),
             ]
             conn.execute(
                 f"INSERT INTO world_state ({', '.join(wcols)}) "

@@ -53,6 +53,17 @@ from src.agent.opening import (
     run_opening_narration,
     run_opening_setup,
 )
+from src.agent.combat import (
+    PRESENT_COMBAT_NAME,
+    build_combat_runner,
+    build_combat_schemas,
+    current_actor,
+    read_combat,
+    save_combat,
+    start_combat,
+    end_combat,
+    run_combat_turn,
+)
 
 __all__ = [
     "build_tool_schemas",
@@ -93,4 +104,13 @@ __all__ = [
     "build_opening_runner",
     "run_opening_setup",
     "run_opening_narration",
+    "PRESENT_COMBAT_NAME",
+    "build_combat_runner",
+    "build_combat_schemas",
+    "read_combat",
+    "save_combat",
+    "current_actor",
+    "start_combat",
+    "end_combat",
+    "run_combat_turn",
 ]

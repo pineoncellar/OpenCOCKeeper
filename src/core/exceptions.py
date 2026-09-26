@@ -98,3 +98,11 @@ class EndingError(OpenCOCKeeperError):
     用户修复后重试；终局轮次本身已随 Director 落库，重试走 /world archive 复用同一轮
     不重复落轮。
     """
+
+
+class CombatError(OpenCOCKeeperError):
+    """战斗子系统失败：不在战斗状态下调用战斗管线、必填战场数据缺失、战斗结算异常等。
+
+    战斗轮物理真相（HP/Tag）经 state_diff 落库，失败不影响回档；软状态
+    combat_runtime 由调用方修复后依存活实体重放收敛。
+    """

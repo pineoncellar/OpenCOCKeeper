@@ -78,6 +78,12 @@ class ToolRunner:
         self.collected_diffs: List[dict] = []
         # 本轮已执行检定的程序权威结果（掷骰值/成功等级等），供 Narrator 演播
         self.collected_checks: List[dict] = []
+        # 本轮 start_combat 建立的战场切片（软状态），供 Director 生成战斗开场公告
+        self.battlefield: Optional[dict] = None
+        # 本轮挂起中的 NPC 攻击（combat_resolve suspend），供恢复轮沿用攻击参数
+        self.pending_attack: Optional[dict] = None
+        # 战斗结算的行动者白名单（Combat Agent 用，防越权代打与一轮多动）
+        self.actor_pool: Optional[set] = None
 
     def register(self, name: str, fn: ToolFunc) -> None:
         """注册工具：fn 接收 (模型参数..., **inject)，返回 dict。"""
@@ -94,6 +100,14 @@ class ToolRunner:
     def reset_checks(self) -> None:
         """清空本轮收集的检定结果（新一轮决策前调用）。"""
         self.collected_checks.clear()
+
+    def reset_battlefield(self) -> None:
+        """清空本轮记录的战场切片（新一轮决策前调用）。"""
+        self.battlefield = None
+
+    def reset_pending_attack(self) -> None:
+        """清空本轮记录的挂起攻击（新一轮决策前调用）。"""
+        self.pending_attack = None
 
     async def execute(self, name: str, arguments: dict, **inject) -> dict:
         """执行指定工具并返回可见结果；未知工具/执行异常返回错误镜像而非抛出。
@@ -215,6 +229,70 @@ async def _run_search_rule_tool(**kwargs: Any) -> dict:
     }
 
 
+def _run_start_combat(storage, runner, **kwargs: Any) -> dict:
+    """start_combat 工具实现：补注册未登记怪物 → 建立战斗轮 → 回填战场切片。
+
+    participant_ids 为参战实体 ID（须已注册）；new_entities 用于把未登记怪物补注册
+    为 NPC 实体（最小面板 DEX 先攻 + 格斗/射击平局比较）。建立成功后把战场切片记录
+    到 runner.battlefield，供 Director 生成战斗开场公告（先攻顺序）。
+    """
+    from src.agent.combat import render_combat_order, start_combat as _start
+
+    world_id = kwargs.get("world_id")
+    participant_ids = [
+        str(p).strip()
+        for p in (kwargs.get("participant_ids") or [])
+        if str(p).strip()
+    ]
+    if not participant_ids:
+        return {"ok": False, "error": "participant_ids 不能为空，请列出全部参战者实体 ID"}
+    specs = {
+        str(s.get("entity_id")).strip(): s
+        for s in (kwargs.get("new_entities") or [])
+        if isinstance(s, dict) and s.get("entity_id")
+    }
+    existing = {e["id"] for e in storage.get_entities(world_id)}
+    registered: List[str] = []
+    for eid in participant_ids:
+        if eid in existing:
+            continue
+        spec = specs.get(eid)
+        if spec is None:
+            return {
+                "ok": False,
+                "error": f"参战者未注册且未提供面板: {eid}；请在 new_entities 中提供其 entity_id/name/hp/dex",
+            }
+        hp = int(spec.get("hp") or 1)
+        storage.create_entity(
+            world_id, eid, "NPC", str(spec.get("name") or eid),
+            hp=hp, hp_max=hp,
+            attributes_and_skills={
+                "DEX": int(spec.get("dex") or 0),
+                "格斗": int(spec.get("fight_skill") or 0),
+                "射击": int(spec.get("shoot_skill") or 0),
+            },
+        )
+        registered.append(eid)
+    ranged = bool(kwargs.get("ranged"))
+    ready = [
+        str(x).strip()
+        for x in (kwargs.get("ready_gun_ids") or [])
+        if str(x).strip()
+    ]
+    cc = _start(storage, world_id, participant_ids, ranged=ranged, ready_gun_ids=ready)
+    # 状态：记录战场切片（软状态），供 Director 生成战斗开场公告
+    runner.battlefield = cc
+    return {
+        "ok": True,
+        "in_combat": True,
+        "round_num": cc.get("round_num"),
+        "turn_order": cc.get("turn_order"),
+        "registered_entities": registered,
+        "order_summary": render_combat_order(storage, world_id, cc),
+        "note": "战斗轮已建立，后续回合由 Combat Agent 接管裁决。请 present_directive 交卷手记（写明先攻顺序与当前战况）。",
+    }
+
+
 def build_default_runner(
     storage, memory: Optional[Any] = None, rng: Optional[object] = None
 ) -> ToolRunner:
@@ -286,6 +364,7 @@ def build_default_runner(
     runner.register("manage_tags", _run_tags)
     runner.register("get_pc_background", lambda **kw: _run_pc_background_tool(storage, **kw))
     runner.register("search_rule", _run_search_rule_tool)
+    runner.register("start_combat", lambda **kw: _run_start_combat(storage, runner, **kw))
     return runner
 
 

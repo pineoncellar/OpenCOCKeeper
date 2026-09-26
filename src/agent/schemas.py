@@ -122,11 +122,54 @@ def _search_rule_schema() -> Dict[str, Any]:
     }
 
 
+def _start_combat_schema() -> Dict[str, Any]:
+    """start_combat 的 parameters：模型声明参战实体、交战方式与补注册面板。
+
+    participant_ids 为已注册参战者实体 ID；new_entities 用于补注册未登记怪物。
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "participant_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": get_prompt("params.start_combat.participant_ids"),
+            },
+            "ranged": {
+                "type": "boolean",
+                "description": get_prompt("params.start_combat.ranged"),
+            },
+            "ready_gun_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": get_prompt("params.start_combat.ready_gun_ids"),
+            },
+            "new_entities": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "entity_id": {"type": "string"},
+                        "name": {"type": "string"},
+                        "hp": {"type": "integer"},
+                        "dex": {"type": "integer"},
+                        "fight_skill": {"type": "integer"},
+                        "shoot_skill": {"type": "integer"},
+                    },
+                    "required": ["entity_id", "name", "hp", "dex"],
+                },
+                "description": get_prompt("params.start_combat.new_entities"),
+            },
+        },
+        "required": ["participant_ids"],
+    }
+
+
 def build_tool_schemas() -> List[Dict[str, Any]]:
-    """返回 5 个原子工具的 OpenAI function 定义数组，供 call_llm(tools=...) 使用。
+    """返回 7 个原子工具的 OpenAI function 定义数组，供 call_llm(tools=...) 使用。
 
     check_and_update_stats 复用 tools.schemas 的 parameters 但剔除注入字段，
-    其余四工具 schema 各自独立定义；字段名与工具实现完全一致。
+    其余工具 schema 各自独立定义；字段名与工具实现完全一致。
     """
     stats_params = _drop_keys(_stats_parameters(), INJECTED_KEYS)
     return [
@@ -136,11 +179,12 @@ def build_tool_schemas() -> List[Dict[str, Any]]:
         _function("manage_tags", _manage_tags_schema()),
         _function("get_pc_background", _get_pc_background_schema()),
         _function("search_rule", _search_rule_schema()),
+        _function("start_combat", _start_combat_schema()),
     ]
 
 
 def tool_names() -> List[str]:
-    """返回 6 个原子工具的名字清单，供注册与日志使用。"""
+    """返回 7 个原子工具的名字清单，供注册与日志使用。"""
     return [
         "search_module",
         "query_memory",
@@ -148,11 +192,12 @@ def tool_names() -> List[str]:
         "manage_tags",
         "get_pc_background",
         "search_rule",
+        "start_combat",
     ]
 
 
 def build_main_agent_schemas() -> List[Dict[str, Any]]:
-    """主 Agent 完整工具清单：5 原子工具 + present_directive 收尾工具。
+    """主 Agent 完整工具清单：7 原子工具 + present_directive 收尾工具。
 
     供 Director.run_turn 喂给 call_llm(tools=...)；收尾工具由闭环 stop 语义拦截，
     不参与普通工具执行（runner 侧另有兜底 handler 防失效）。
